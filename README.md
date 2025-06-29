@@ -1,4 +1,4 @@
-### GET STARTED
+### Usage instructions
 activate venv with
 ```bash
 python3.10 -m venv .venv
@@ -16,5 +16,5 @@ python run_merfish_whole.py
 python run_pbmc_whole.py
 python run_shendure_whole.py
 ```
-if starting from scratch uncommnet code to make train/test/val and tokenize the dataset.
-additionaly you need to run hvg code to recompute the PCA HVGs in hvg.ipynb
+
+for first run, uncomment tokenization code in each script, and run all cells in `hvg.ipynb` to precompute HVGs.
