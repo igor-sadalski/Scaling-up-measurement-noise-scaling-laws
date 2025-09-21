@@ -421,7 +421,6 @@ def test_multiple_cell_scaling_hyperparameters(df, hyperparameter_combinations, 
     """
     import multiprocessing as mp
     from multiprocessing import Pool
-    from tqdm import tqdm
     import shutil
 
     if n_processes is None:
@@ -443,9 +442,11 @@ def test_multiple_cell_scaling_hyperparameters(df, hyperparameter_combinations, 
 
     # Use multiprocessing with progress bar
     with Pool(processes=n_processes) as pool:
-        results = list(
-            tqdm(pool.imap(plot_single_hyperparameter, args_list), total=len(args_list), desc="Generating plots")
-        )
+        # Use map for parallel execution
+        results = pool.map(plot_single_hyperparameter, args_list)
+
+        # Show progress manually since map doesn't have built-in progress bar
+        print(f"Completed processing {len(results)} hyperparameter combinations")
 
     # Print summary
     successful = sum(1 for _, _, _, success, _, _ in results if success)
@@ -491,7 +492,7 @@ if __name__ == "__main__":
 
     # Generate some test hyperparameter combinations
     def generate_hyperparameter_combinations(
-        n_combinations=10, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0)
+        n_combinations=50, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0)
     ):
         """Generate random hyperparameter combinations for testing."""
         combinations = []
@@ -505,7 +506,7 @@ if __name__ == "__main__":
     # Generate 50 test combinations
     print("\nGenerating 50 test hyperparameter combinations...")
     hyperparameter_combinations = generate_hyperparameter_combinations(
-        n_combinations=50, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0)
+        n_combinations=10, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0)
     )
 
     print("Hyperparameter combinations:")

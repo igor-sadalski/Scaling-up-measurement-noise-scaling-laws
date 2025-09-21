@@ -16,7 +16,7 @@ def plot_noise_scaling_fits(
     """
     Fit and plot noise scaling model for all (dataset, size, method, metric) groups in df.
     Parameters:
-        df: DataFrame with columns including 'dataset', 'size', 'method', 'metric', 'umis_per_cell', 'mi_value'
+        df: DataFrame with columns in`cl`uding 'dataset', 'size', 'method', 'metric', 'umis_per_cell', 'mi_value'
         initial_u_bar: initial guess for u_bar (A_info)
         initial_I_max: initial guess for I_max (B_info)
         save_plots: whether to save plots to file
@@ -50,7 +50,7 @@ def plot_noise_scaling_fits(
         ratio = np.where(ratio <= 0, epsilon, ratio)
         return I_max - 0.5 * np.log2(ratio)
 
-    def fit_noise_scaling_model(u_values, mi_values, initial_u_bar, initial_I_max):
+    def fit_noise_scaling_model(u_values, mi_values, initial_u_bar, initial_I_max, method=None, metric=None):
         """
         Fit the noise scaling model to data and return u_bar and I_max with uncertainties.
         """
@@ -73,7 +73,6 @@ def plot_noise_scaling_fits(
         model = Model(info_scaling_local)
         params = model.make_params(u_bar=initial_u_bar, I_max=initial_I_max)
         params["u_bar"].min = 0
-        params["u_bar"].max = 3000  # Constrain u_bar to maximum of 3000
         params["I_max"].min = 0
 
         try:
@@ -142,7 +141,7 @@ def plot_noise_scaling_fits(
             u_values = size_data["umis_per_cell"].values
             mi_values = size_data["mi_value"].values
 
-            fit_results = fit_noise_scaling_model(u_values, mi_values, initial_u_bar, initial_I_max)
+            fit_results = fit_noise_scaling_model(u_values, mi_values, initial_u_bar, initial_I_max, method, metric)
 
             if fit_results["fit_success"]:
                 fitted_mi_values = info_scaling(u_values, fit_results["u_bar"], fit_results["I_max"])
@@ -290,13 +289,21 @@ def plot_noise_scaling_fits(
                                 y_info = np.full_like(u_range, y_info)
                             if np.isscalar(y_info_lower):
                                 y_info_lower = np.full_like(u_range, y_info_lower)
-                            ax.fill_between(
-                                u_range,
-                                fitted_curve + y_info,
-                                fitted_curve + y_info_lower,
-                                color=size_color_map[size],
-                                alpha=0.1,
-                            )
+
+                            # Only plot uncertainty bands if y_info error is not too large
+                            max_uncertainty = np.max(np.abs(y_info))
+                            if max_uncertainty <= 0.5:
+                                ax.fill_between(
+                                    u_range,
+                                    fitted_curve + y_info,
+                                    fitted_curve + y_info_lower,
+                                    color=size_color_map[size],
+                                    alpha=0.1,
+                                )
+                            else:
+                                print(
+                                    f"Skipping uncertainty bands for {method} {metric} {dataset} size {size}: max uncertainty = {max_uncertainty:.3f} > 0.5"
+                                )
                             ax.plot(
                                 u_range, fitted_curve, color=size_color_map[size], linestyle=linestyle, lw=1, alpha=0.5
                             )
@@ -487,7 +494,7 @@ if __name__ == "__main__":
     # Generate 50 random hyperparameter combinations
     print("Generating 50 random hyperparameter combinations...")
     hyperparameter_combinations = generate_hyperparameter_combinations(
-        n_combinations=50, u_bar_range=(50, 20_000), I_max_range=(0.5, 30)
+        n_combinations=50, u_bar_range=(50, 1_000), I_max_range=(0.5, 10)
     )
 
     print("Hyperparameter combinations:")
