@@ -3,3 +3,6 @@ data/
 *.egg-info/
 __pycache__/
 data_leakage/
+analysis/cell_scaling_different_hyperparams/
+analysis/noise_scaling_different_hyperparams/
+old/
