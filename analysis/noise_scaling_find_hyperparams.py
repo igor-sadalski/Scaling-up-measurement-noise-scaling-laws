@@ -73,6 +73,7 @@ def plot_noise_scaling_fits(
         model = Model(info_scaling_local)
         params = model.make_params(u_bar=initial_u_bar, I_max=initial_I_max)
         params["u_bar"].min = 0
+        params["u_bar"].max = 3000  # Constrain u_bar to maximum of 3000
         params["I_max"].min = 0
 
         try:
@@ -316,12 +317,6 @@ def plot_noise_scaling_fits(
         if output_dir is None:
             output_dir = "/home/jupyter/igor_repos/exploration/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/noise_scaling_different_hyperparams"
 
-        # Clear the output directory if it exists
-        if os.path.exists(output_dir):
-            import shutil
-            shutil.rmtree(output_dir)
-            print(f"Cleared existing directory: {output_dir}")
-        
         # Create output directory if it doesn't exist
         os.makedirs(output_dir, exist_ok=True)
 
@@ -420,14 +415,15 @@ def test_multiple_hyperparameters(df, hyperparameter_combinations, n_processes=N
         n_processes = min(mp.cpu_count(), len(hyperparameter_combinations))
 
     output_dir = "/home/jupyter/igor_repos/exploration/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/noise_scaling_different_hyperparams"
-    
-    # Clear the output directory if it exists
+
+    # Clear and recreate the output directory only once at initialization
     if os.path.exists(output_dir):
         import shutil
+
+        print(f"Clearing existing output directory: {output_dir}")
         shutil.rmtree(output_dir)
-        print(f"Cleared existing directory: {output_dir}")
-    
     os.makedirs(output_dir, exist_ok=True)
+    print(f"Created output directory: {output_dir}")
 
     # Prepare arguments for multiprocessing
     args_list = [(df, u_bar, I_max, output_dir) for u_bar, I_max in hyperparameter_combinations]

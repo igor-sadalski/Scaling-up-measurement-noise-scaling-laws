@@ -98,7 +98,14 @@ def fit_cell_number_scaling_model(cell_values, mi_values, method, initial_N0, in
 
 
 def plot_cell_scaling_fits(
-    df, initial_N0=10**4, initial_s=1.0, initial_I_inf=2.5, save_plots=True, output_dir=None, show_plot=True
+    df,
+    initial_N0=10**4,
+    initial_s=1.0,
+    initial_I_inf=2.5,
+    save_plots=True,
+    output_dir=None,
+    show_plot=True,
+    save_uncertainty=True,
 ):
     """
     Fit and plot cell scaling model for all (dataset, method, metric, quality) groups in df.
@@ -111,22 +118,17 @@ def plot_cell_scaling_fits(
         save_plots: whether to save plots to file
         output_dir: directory to save plots (default: cell_scaling_different_hyperparams)
         show_plot: whether to display the plot
+        save_uncertainty: whether to save uncertainty data to CSV
 
     Returns:
         DataFrame with fit results including dataset, method, metric, quality, size, N0, s, I_inf, mean_residual
     """
 
-    # Create output directory if not provided
+    # Set output directory if not provided
     if output_dir is None:
         output_dir = "/home/jupyter/igor_repos/exploration/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/cell_scaling_different_hyperparams"
 
-    # Clear the output directory if it exists
-    if os.path.exists(output_dir):
-        import shutil
-
-        shutil.rmtree(output_dir)
-        print(f"Cleared existing directory: {output_dir}")
-
+    # Ensure output directory exists (should already exist from initialization)
     os.makedirs(output_dir, exist_ok=True)
 
     # Get unique combinations of dataset, method, metric, and quality
@@ -331,14 +333,26 @@ def plot_cell_scaling_fits(
         else:
             plt.close()  # Close the figure to free memory when not showing
 
-    # Save the results to CSV
-    if save_plots:
+    # Save the results to CSV if requested
+    if save_plots and save_uncertainty:
         csv_filename = f"cell_scaling_N0_{initial_N0:.3f}_s_{initial_s:.3f}_I_inf_{initial_I_inf:.3f}.csv"
         csv_filepath = os.path.join(output_dir, csv_filename)
-        cell_scaling_results_summary.to_csv(csv_filepath, index=False)
+
+        # Round numerical columns to 3 decimal places
+        cell_scaling_results_summary_rounded = cell_scaling_results_summary.copy()
+        numerical_columns = ["N0", "s", "I_inf", "mean_residual"]
+        for col in numerical_columns:
+            if col in cell_scaling_results_summary_rounded.columns:
+                cell_scaling_results_summary_rounded[col] = cell_scaling_results_summary_rounded[col].round(3)
+
+        cell_scaling_results_summary_rounded.to_csv(csv_filepath, index=False)
         print(f"Results saved to: {csv_filepath}")
 
-    return cell_scaling_results_summary
+    # Return uncertainty DataFrame if save_uncertainty is True
+    if save_uncertainty:
+        return cell_scaling_results_summary
+    else:
+        return None
 
 
 def generate_hyperparameter_combinations(
@@ -381,6 +395,7 @@ def plot_single_hyperparameter(args):
             save_plots=True,
             output_dir=output_dir,
             show_plot=False,
+            save_uncertainty=True,
         )
 
         png_filename = f"cell_scaling_N0_{N0:.3f}_s_{s:.3f}_I_inf_{I_inf:.3f}.png"
@@ -407,20 +422,19 @@ def test_multiple_cell_scaling_hyperparameters(df, hyperparameter_combinations, 
     import multiprocessing as mp
     from multiprocessing import Pool
     from tqdm import tqdm
+    import shutil
 
     if n_processes is None:
         n_processes = min(mp.cpu_count(), len(hyperparameter_combinations))
 
     output_dir = "/home/jupyter/igor_repos/exploration/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/cell_scaling_different_hyperparams"
 
-    # Clear the output directory if it exists
+    # Clear and recreate the output directory only once at initialization
     if os.path.exists(output_dir):
-        import shutil
-
+        print(f"Clearing existing output directory: {output_dir}")
         shutil.rmtree(output_dir)
-        print(f"Cleared existing directory: {output_dir}")
-
     os.makedirs(output_dir, exist_ok=True)
+    print(f"Created output directory: {output_dir}")
 
     # Prepare arguments for multiprocessing
     args_list = [(df, N0, s, I_inf, output_dir) for N0, s, I_inf in hyperparameter_combinations]
@@ -472,7 +486,7 @@ if __name__ == "__main__":
 
     # Test with default parameters
     print("Testing with default parameters...")
-    results = plot_cell_scaling_fits(df, initial_N0=10**4, initial_s=1.0, initial_I_inf=2.5)
+    results = plot_cell_scaling_fits(df, initial_N0=10**4, initial_s=1.0, initial_I_inf=2.5, save_uncertainty=True)
     print(f"Results shape: {results.shape}")
 
     # Generate some test hyperparameter combinations
@@ -488,17 +502,21 @@ if __name__ == "__main__":
             combinations.append((N0, s, I_inf))
         return combinations
 
-    # Generate test combinations
-    print("\nGenerating test hyperparameter combinations...")
+    # Generate 50 test combinations
+    print("\nGenerating 50 test hyperparameter combinations...")
     hyperparameter_combinations = generate_hyperparameter_combinations(
-        n_combinations=5, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0)
+        n_combinations=50, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0)
     )
 
     print("Hyperparameter combinations:")
-    for i, (N0, s, I_inf) in enumerate(hyperparameter_combinations):
+    for i, (N0, s, I_inf) in enumerate(hyperparameter_combinations[:10]):  # Show first 10
         print(f"  {i+1:2d}: N0={N0:8.3f}, s={s:.3f}, I_inf={I_inf:.3f}")
+    print("  ...")
+    print(
+        f"  {len(hyperparameter_combinations)}: N0={hyperparameter_combinations[-1][0]:8.3f}, s={hyperparameter_combinations[-1][1]:.3f}, I_inf={hyperparameter_combinations[-1][2]:.3f}"
+    )
 
     # Test with multiple hyperparameters
-    print("\nTesting with multiple hyperparameters...")
+    print("\nTesting with 50 different hyperparameter combinations...")
     test_multiple_cell_scaling_hyperparameters(df, hyperparameter_combinations)
     print("All plots saved successfully!")
