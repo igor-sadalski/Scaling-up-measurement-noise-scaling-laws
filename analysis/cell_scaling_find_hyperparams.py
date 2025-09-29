@@ -5,14 +5,24 @@ import os
 from lmfit import Model, Parameters
 
 
-def cell_number_scaling(x, N0, s, I_inf):
+def cell_number_scaling(x, N0, s, I_inf, I_0):
     """
-    Cell number scaling function: I(x) = I_inf - (x / N0) ** (-s)
+    Cell number scaling function: I(x) = max(I_0, I_inf - (x / N0) ** (-s))
     """
-    return I_inf - (x / N0) ** (-s)
+    with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+        # Calculate the scaling term more safely to avoid overflow
+        ratio = x / N0
+        # Use log-space calculation to avoid overflow
+        scaling_term = np.where(
+            ratio > 0,
+            np.exp(-s * np.log(ratio)),
+            0.0
+        )
+        result = np.where(x > 0, np.maximum(I_0, I_inf - scaling_term), np.nan)
+    return result
 
 
-def fit_cell_number_scaling_model(cell_values, mi_values, method, initial_N0, initial_s, initial_I_inf):
+def fit_cell_number_scaling_model(cell_values, mi_values, method, initial_N0, initial_s, initial_I_inf, initial_I_0):
     """
     Fit the cell number scaling model to data and return parameters and mean residual.
 
@@ -23,22 +33,31 @@ def fit_cell_number_scaling_model(cell_values, mi_values, method, initial_N0, in
     initial_N0: initial guess for N0 parameter
     initial_s: initial guess for s parameter
     initial_I_inf: initial guess for I_inf parameter
+    initial_I_0: initial guess for I_0 floor parameter
 
     Returns:
-    dict with N0, s, I_inf, mean_residual, fit_success status, and lmfit result
+    dict with N0, s, I_inf, I_0, mean_residual, fit_success status, and lmfit result
     """
 
     # Define the cell number scaling function for fitting
-    def cell_number_scaling_local(x, N0, s, I_inf):
+    def cell_number_scaling_local_v2(x, N0, s, I_inf, I_0):
         """
-        Cell number scaling function: I(x) = I_inf - (x / N0) ** (-s)
+        Cell number scaling function v2: I(x) = max(I_0, I_inf - (x / N0) ** (-s))
         """
-        with np.errstate(divide="ignore", invalid="ignore"):
-            result = np.where(x > 0, I_inf - (x / N0) ** (-s), np.nan)
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            # Calculate the scaling term more safely
+            ratio = x / N0
+            # Use log-space calculation to avoid overflow
+            scaling_term = np.where(
+                ratio > 0,
+                np.exp(-s * np.log(ratio)),
+                0.0
+            )
+            result = np.where(x > 0, np.maximum(I_0, I_inf - scaling_term), np.nan)
         return result
 
     # Create lmfit model
-    model = Model(cell_number_scaling_local)
+    model = Model(cell_number_scaling_local_v2)
 
     # Set up parameters with initial values and bounds
     if method in ["PCA", "RandomProjection"]:
@@ -46,15 +65,18 @@ def fit_cell_number_scaling_model(cell_values, mi_values, method, initial_N0, in
             N0=dict(value=initial_N0, min=1e-6),
             s=dict(value=initial_s, min=1e-3),
             I_inf=dict(value=initial_I_inf, min=mi_values.max(), max=mi_values.max() * 1.5),
+            I_0=dict(value=initial_I_0, min=0.0, max=mi_values.min()),
         )
     else:  # SCVI or Geneformer
-        params = model.make_params(N0=initial_N0, s=initial_s, I_inf=initial_I_inf)
+        params = model.make_params(N0=initial_N0, s=initial_s, I_inf=initial_I_inf, I_0=initial_I_0)
         params["N0"].min = 10
         params["N0"].max = 10**6
         params["s"].min = 0.01
         params["s"].max = 2.0
         params["I_inf"].min = 0.1
         params["I_inf"].max = 5.0
+        params["I_0"].min = 0.0
+        params["I_0"].max = mi_values.min()
 
     # Fit the curve
     try:
@@ -62,6 +84,7 @@ def fit_cell_number_scaling_model(cell_values, mi_values, method, initial_N0, in
         N0_val = result.params["N0"].value
         s_val = result.params["s"].value
         I_inf_val = result.params["I_inf"].value
+        I_0_val = result.params["I_0"].value
 
         # Compute mean residual
         residuals = result.residual
@@ -76,6 +99,7 @@ def fit_cell_number_scaling_model(cell_values, mi_values, method, initial_N0, in
             "N0": N0_val,
             "s": s_val,
             "I_inf": I_inf_val,
+            "I_0": I_0_val,
             "mean_residual": mean_residual,
             "fit_success": True,
             "result": result,
@@ -89,6 +113,7 @@ def fit_cell_number_scaling_model(cell_values, mi_values, method, initial_N0, in
             "N0": np.nan,
             "s": np.nan,
             "I_inf": np.nan,
+            "I_0": np.nan,
             "mean_residual": np.nan,
             "fit_success": False,
             "result": None,
@@ -102,6 +127,7 @@ def plot_cell_scaling_fits(
     initial_N0=10**4,
     initial_s=1.0,
     initial_I_inf=2.5,
+    initial_I_0=0.1,
     save_plots=True,
     output_dir=None,
     show_plot=True,
@@ -115,18 +141,19 @@ def plot_cell_scaling_fits(
         initial_N0: initial guess for N0 parameter
         initial_s: initial guess for s parameter
         initial_I_inf: initial guess for I_inf parameter
+        initial_I_0: initial guess for I_0 floor parameter
         save_plots: whether to save plots to file
-        output_dir: directory to save plots (default: cell_scaling_different_hyperparams)
+        output_dir: directory to save plots (default: cell_scaling)
         show_plot: whether to display the plot
         save_uncertainty: whether to save uncertainty data to CSV
 
     Returns:
-        DataFrame with fit results including dataset, method, metric, quality, size, N0, s, I_inf, mean_residual
+        DataFrame with fit results including dataset, method, metric, quality, size, N0, s, I_inf, I_0, mean_residual
     """
 
     # Set output directory if not provided
     if output_dir is None:
-        output_dir = "/home/jupyter/igor_repos/exploration/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/cell_scaling_different_hyperparams"
+        output_dir = "/home/igor/exploration/scaling_laws_paper/Scaling-up-measurement-noise-scaling-laws/analysis/cell_scaling"
 
     # Ensure output directory exists (should already exist from initialization)
     os.makedirs(output_dir, exist_ok=True)
@@ -163,7 +190,7 @@ def plot_cell_scaling_fits(
 
         # Fit the model
         fit_results = fit_cell_number_scaling_model(
-            cell_values, mi_values, method, initial_N0, initial_s, initial_I_inf
+            cell_values, mi_values, method, initial_N0, initial_s, initial_I_inf, initial_I_0
         )
 
         # Store results in separate dataframe - create one row per combination
@@ -175,6 +202,7 @@ def plot_cell_scaling_fits(
             "N0": fit_results["N0"],
             "s": fit_results["s"],
             "I_inf": fit_results["I_inf"],
+            "I_0": fit_results["I_0"],
             "mean_residual": fit_results["mean_residual"],
         }
         cell_scaling_results_df.append(result_row)
@@ -292,9 +320,10 @@ def plot_cell_scaling_fits(
                             N0_fit = first_row["N0"]
                             s_fit = first_row["s"]
                             I_inf_fit = first_row["I_inf"]
+                            I_0_fit = first_row["I_0"]
 
                             # Calculate fitted curve
-                            fitted_curve = cell_number_scaling(cell_range, N0_fit, s_fit, I_inf_fit)
+                            fitted_curve = cell_number_scaling(cell_range, N0_fit, s_fit, I_inf_fit, I_0_fit)
 
                             # Plot fitted line
                             ax.plot(
@@ -323,7 +352,7 @@ def plot_cell_scaling_fits(
         # Save plot if requested
         if save_plots:
             # Create filename with hyperparameters (3 decimal places)
-            filename = f"cell_scaling_N0_{initial_N0:.3f}_s_{initial_s:.3f}_I_inf_{initial_I_inf:.3f}.png"
+            filename = f"cell_scaling_N0_{initial_N0:.3f}_s_{initial_s:.3f}_I_inf_{initial_I_inf:.3f}_I_0_{initial_I_0:.3f}.png"
             filepath = os.path.join(output_dir, filename)
             plt.savefig(filepath, dpi=300, bbox_inches="tight")
             print(f"Plot saved to: {filepath}")
@@ -335,12 +364,12 @@ def plot_cell_scaling_fits(
 
     # Save the results to CSV if requested
     if save_plots and save_uncertainty:
-        csv_filename = f"cell_scaling_N0_{initial_N0:.3f}_s_{initial_s:.3f}_I_inf_{initial_I_inf:.3f}.csv"
+        csv_filename = f"cell_scaling_N0_{initial_N0:.3f}_s_{initial_s:.3f}_I_inf_{initial_I_inf:.3f}_I_0_{initial_I_0:.3f}.csv"
         csv_filepath = os.path.join(output_dir, csv_filename)
 
         # Round numerical columns to 3 decimal places
         cell_scaling_results_summary_rounded = cell_scaling_results_summary.copy()
-        numerical_columns = ["N0", "s", "I_inf", "mean_residual"]
+        numerical_columns = ["N0", "s", "I_inf", "I_0", "mean_residual"]
         for col in numerical_columns:
             if col in cell_scaling_results_summary_rounded.columns:
                 cell_scaling_results_summary_rounded[col] = cell_scaling_results_summary_rounded[col].round(3)
@@ -356,7 +385,7 @@ def plot_cell_scaling_fits(
 
 
 def generate_hyperparameter_combinations(
-    n_combinations=50, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0)
+    n_combinations=50, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0), I_0_range=(0.0, 1.0)
 ):
     """
     Generate random hyperparameter combinations for testing.
@@ -366,9 +395,10 @@ def generate_hyperparameter_combinations(
         N0_range: tuple of (min, max) for N0 values
         s_range: tuple of (min, max) for s values
         I_inf_range: tuple of (min, max) for I_inf values
+        I_0_range: tuple of (min, max) for I_0 values
 
     Returns:
-        list of tuples (N0, s, I_inf)
+        list of tuples (N0, s, I_inf, I_0)
     """
     import random
 
@@ -377,13 +407,14 @@ def generate_hyperparameter_combinations(
         N0 = random.uniform(N0_range[0], N0_range[1])
         s = random.uniform(s_range[0], s_range[1])
         I_inf = random.uniform(I_inf_range[0], I_inf_range[1])
-        combinations.append((N0, s, I_inf))
+        I_0 = random.uniform(I_0_range[0], I_0_range[1])
+        combinations.append((N0, s, I_inf, I_0))
     return combinations
 
 
 def plot_single_hyperparameter(args):
     """Plot function for multiprocessing."""
-    df, N0, s, I_inf, output_dir = args
+    df, N0, s, I_inf, I_0, output_dir = args
 
     try:
         # Call the plotting function with show_plot=False for multiprocessing
@@ -392,22 +423,23 @@ def plot_single_hyperparameter(args):
             initial_N0=N0,
             initial_s=s,
             initial_I_inf=I_inf,
+            initial_I_0=I_0,
             save_plots=True,
             output_dir=output_dir,
             show_plot=False,
             save_uncertainty=True,
         )
 
-        png_filename = f"cell_scaling_N0_{N0:.3f}_s_{s:.3f}_I_inf_{I_inf:.3f}.png"
+        png_filename = f"cell_scaling_N0_{N0:.3f}_s_{s:.3f}_I_inf_{I_inf:.3f}_I_0_{I_0:.3f}.png"
         png_filepath = os.path.join(output_dir, png_filename)
 
-        csv_filename = f"cell_scaling_N0_{N0:.3f}_s_{s:.3f}_I_inf_{I_inf:.3f}.csv"
+        csv_filename = f"cell_scaling_N0_{N0:.3f}_s_{s:.3f}_I_inf_{I_inf:.3f}_I_0_{I_0:.3f}.csv"
         csv_filepath = os.path.join(output_dir, csv_filename)
 
-        return (N0, s, I_inf, True, png_filepath, csv_filepath)
+        return (N0, s, I_inf, I_0, True, png_filepath, csv_filepath)
     except Exception as e:
-        print(f"Error with N0={N0:.3f}, s={s:.3f}, I_inf={I_inf:.3f}: {str(e)}")
-        return (N0, s, I_inf, False, None, None)
+        print(f"Error with N0={N0:.3f}, s={s:.3f}, I_inf={I_inf:.3f}, I_0={I_0:.3f}: {str(e)}")
+        return (N0, s, I_inf, I_0, False, None, None)
 
 
 def test_multiple_cell_scaling_hyperparameters(df, hyperparameter_combinations, n_processes=None):
@@ -426,7 +458,7 @@ def test_multiple_cell_scaling_hyperparameters(df, hyperparameter_combinations, 
     if n_processes is None:
         n_processes = min(mp.cpu_count(), len(hyperparameter_combinations))
 
-    output_dir = "/home/jupyter/igor_repos/exploration/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/cell_scaling_different_hyperparams"
+    output_dir = "/home/igor/exploration/scaling_laws_paper/Scaling-up-measurement-noise-scaling-laws/analysis/cell_scaling"
 
     # Clear and recreate the output directory only once at initialization
     if os.path.exists(output_dir):
@@ -436,7 +468,7 @@ def test_multiple_cell_scaling_hyperparameters(df, hyperparameter_combinations, 
     print(f"Created output directory: {output_dir}")
 
     # Prepare arguments for multiprocessing
-    args_list = [(df, N0, s, I_inf, output_dir) for N0, s, I_inf in hyperparameter_combinations]
+    args_list = [(df, N0, s, I_inf, I_0, output_dir) for N0, s, I_inf, I_0 in hyperparameter_combinations]
 
     print(f"Generating {len(hyperparameter_combinations)} plots using {n_processes} processes...")
 
@@ -449,7 +481,7 @@ def test_multiple_cell_scaling_hyperparameters(df, hyperparameter_combinations, 
         print(f"Completed processing {len(results)} hyperparameter combinations")
 
     # Print summary
-    successful = sum(1 for _, _, _, success, _, _ in results if success)
+    successful = sum(1 for _, _, _, _, success, _, _ in results if success)
     failed = len(results) - successful
 
     print(f"\nPlot generation complete!")
@@ -458,13 +490,13 @@ def test_multiple_cell_scaling_hyperparameters(df, hyperparameter_combinations, 
 
     if failed > 0:
         print("Failed combinations:")
-        for N0, s, I_inf, success, _, _ in results:
+        for N0, s, I_inf, I_0, success, _, _ in results:
             if not success:
-                print(f"  N0={N0:.3f}, s={s:.3f}, I_inf={I_inf:.3f}")
+                print(f"  N0={N0:.3f}, s={s:.3f}, I_inf={I_inf:.3f}, I_0={I_0:.3f}")
 
     # Print summary of saved files
-    png_files = [png_path for _, _, _, success, png_path, _ in results if success and png_path]
-    csv_files = [csv_path for _, _, _, success, _, csv_path in results if success and csv_path]
+    png_files = [png_path for _, _, _, _, success, png_path, _ in results if success and png_path]
+    csv_files = [csv_path for _, _, _, _, success, _, csv_path in results if success and csv_path]
     print(f"PNG files saved: {len(png_files)}")
     print(f"CSV files saved: {len(csv_files)}")
 
@@ -479,7 +511,7 @@ if __name__ == "__main__":
 
     # Load the data
     df = pd.read_csv(
-        "/home/jupyter/igor_repos/exploration/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/collect_mi_results.csv"
+        "/home/igor/exploration/scaling_laws_paper/Scaling-up-measurement-noise-scaling-laws/collect_mi_results.csv"
     )
 
     # Rename columns for consistency
@@ -487,12 +519,12 @@ if __name__ == "__main__":
 
     # Test with default parameters
     print("Testing with default parameters...")
-    results = plot_cell_scaling_fits(df, initial_N0=10**4, initial_s=1.0, initial_I_inf=2.5, save_uncertainty=True)
+    results = plot_cell_scaling_fits(df, initial_N0=10**4, initial_s=1.0, initial_I_inf=2.5, initial_I_0=0.1, save_uncertainty=True)
     print(f"Results shape: {results.shape}")
 
     # Generate some test hyperparameter combinations
     def generate_hyperparameter_combinations(
-        n_combinations=50, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0)
+        n_combinations=50, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0), I_0_range=(0.0, 1.0)
     ):
         """Generate random hyperparameter combinations for testing."""
         combinations = []
@@ -500,21 +532,22 @@ if __name__ == "__main__":
             N0 = random.uniform(N0_range[0], N0_range[1])
             s = random.uniform(s_range[0], s_range[1])
             I_inf = random.uniform(I_inf_range[0], I_inf_range[1])
-            combinations.append((N0, s, I_inf))
+            I_0 = random.uniform(I_0_range[0], I_0_range[1])
+            combinations.append((N0, s, I_inf, I_0))
         return combinations
 
     # Generate 50 test combinations
     print("\nGenerating 50 test hyperparameter combinations...")
     hyperparameter_combinations = generate_hyperparameter_combinations(
-        n_combinations=10, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0)
+        n_combinations=50, N0_range=(1000, 50000), s_range=(0.1, 2.0), I_inf_range=(0.5, 5.0), I_0_range=(0.0, 1.0)
     )
 
     print("Hyperparameter combinations:")
-    for i, (N0, s, I_inf) in enumerate(hyperparameter_combinations[:10]):  # Show first 10
-        print(f"  {i+1:2d}: N0={N0:8.3f}, s={s:.3f}, I_inf={I_inf:.3f}")
+    for i, (N0, s, I_inf, I_0) in enumerate(hyperparameter_combinations[:10]):  # Show first 10
+        print(f"  {i+1:2d}: N0={N0:8.3f}, s={s:.3f}, I_inf={I_inf:.3f}, I_0={I_0:.3f}")
     print("  ...")
     print(
-        f"  {len(hyperparameter_combinations)}: N0={hyperparameter_combinations[-1][0]:8.3f}, s={hyperparameter_combinations[-1][1]:.3f}, I_inf={hyperparameter_combinations[-1][2]:.3f}"
+        f"  {len(hyperparameter_combinations)}: N0={hyperparameter_combinations[-1][0]:8.3f}, s={hyperparameter_combinations[-1][1]:.3f}, I_inf={hyperparameter_combinations[-1][2]:.3f}, I_0={hyperparameter_combinations[-1][3]:.3f}"
     )
 
     # Test with multiple hyperparameters

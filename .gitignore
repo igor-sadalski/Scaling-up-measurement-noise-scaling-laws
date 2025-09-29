@@ -6,3 +6,5 @@ data_leakage/
 analysis/cell_scaling_different_hyperparams/
 analysis/noise_scaling_different_hyperparams/
 old/
+analysis/cell_scaling/
+analysis/noise_scaling/
