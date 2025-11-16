@@ -322,7 +322,7 @@ def plot_noise_scaling_fits(
     # Save plot if requested
     if save_plots:
         if output_dir is None:
-            output_dir = "/home/igor/exploration/scaling_laws_paper/Scaling-up-measurement-noise-scaling-laws/analysis/noise_scaling"
+            output_dir = "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/intermediate_fits_noise_scaling"
 
         # Create output directory if it doesn't exist
         os.makedirs(output_dir, exist_ok=True)
@@ -421,7 +421,7 @@ def test_multiple_hyperparameters(df, hyperparameter_combinations, n_processes=N
     if n_processes is None:
         n_processes = min(mp.cpu_count(), len(hyperparameter_combinations))
 
-    output_dir = "/home/igor/exploration/scaling_laws_paper/Scaling-up-measurement-noise-scaling-laws/analysis/noise_scaling"
+    output_dir = "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/intermediate_fits_noise_scaling"
 
     # Clear and recreate the output directory only once at initialization
     if os.path.exists(output_dir):
