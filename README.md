@@ -3,11 +3,11 @@ activate venv with
 ```bash
 python3.10 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-cd ~/noise_scaling_laws/src/lib/geneformer
-pip install -e .
+uv pip install -r requirements.txt
+cd ~/noise_scaling_laws/src/lib/Geneformer
+uv pip install -e .
 cd ~/noise_scaling_laws/scaling_laws
-pip install -e .
+uv pip install -e .
 ```
 recreate experiment by running:
 ```bash

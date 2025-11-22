@@ -271,14 +271,26 @@ class PrepareData:
             adata.obs = pd.concat([adata.obs, protein_df], axis=1)
 
         elif dataset_name == "shendure":
-            adata = ad.read_h5ad(
-                "/home/jupyter/gokul_paper/somite-models/Geneformer/data/subsamples/shendure_sample_1000000.h5ad",
-                backed=True,
-            )
+            import urllib.request
+
+            shendure_url = "https://datasets.cellxgene.cziscience.com/a5a85963-8004-41a1-8eb5-ca65266d89c3.h5ad"
+            shendure_file = raw_data_path / "raw.h5ad"
+
+            if not shendure_file.exists():
+                print(f"Downloading shendure data from {shendure_url}")
+                print(f"Saving to {shendure_file}")
+                urllib.request.urlretrieve(shendure_url, shendure_file)
+                print("Download complete")
+            else:
+                print(f"Using existing shendure data at {shendure_file}")
+
+            adata = ad.read_h5ad(str(shendure_file), backed=True)
 
         elif dataset_name == "merfish":
-            meta = pd.read_csv("/home/jupyter/igor_repos/noise_scaling_laws/data/raw/S1R1_meta.csv", index_col=0)
-            cxg = pd.read_csv("/home/jupyter/igor_repos/noise_scaling_laws/data/raw/S1R1_cxg.csv", index_col=0)
+            raw_dir = path_to_data_dir / "raw"
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            meta = pd.read_csv("/home/igor/exploration/Scaling-up-measurement-noise-scaling-laws/S1R1_meta.csv", index_col=0)
+            cxg = pd.read_csv("/home/igor/exploration/Scaling-up-measurement-noise-scaling-laws/S1R1_cxg.csv", index_col=0)
             rnas = [x for x in cxg.keys() if "Blank" not in x]
             adata = ad.AnnData(cxg[rnas])
             sparse_X = sp.csr_matrix(adata.X)
@@ -445,6 +457,7 @@ class ExperimentJobIterator:
                 "max_epochs": config["max_epochs"],
                 "early_stopping_patience": config["early_stopping_patience"],
                 "signal_columns": self.signal_columns,
+                "path_to_data_dir": self.path_to_data_dir,
             }
 
             time.sleep(self.sleep_time)
@@ -456,6 +469,7 @@ class ExperimentJobIterator:
                 "algo": algo,
                 "device": device,
                 "signal_columns": self.signal_columns,
+                "path_to_data_dir": self.path_to_data_dir,
             }
 
         return job_args
@@ -465,23 +479,130 @@ class ExperimentJobIterator:
         mem_limit = self.mem_limit[algo] if algo in self.mem_limit else self.mem_limit["default"]
         start_time = time.time()
 
+        def _get_gpu_memory_info():
+            """Get GPU memory info, supporting both NVIDIA and ROCm."""
+            try:
+                gpu_info = subprocess.check_output(
+                    ["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader,nounits"],
+                    stderr=subprocess.DEVNULL
+                ).decode()
+                gpu_data = []
+                for line in gpu_info.strip().split("\n"):
+                    if line.strip():
+                        gpu_id, mem_used = map(int, line.split(", "))
+                        gpu_data.append((gpu_id, mem_used))
+                return gpu_data
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                try:
+                    gpu_info = subprocess.check_output(
+                        ["rocm-smi", "--alldevices", "--showmemuse", "--csv"],
+                        stderr=subprocess.PIPE
+                    ).decode()
+                    gpu_data = []
+                    lines = gpu_info.strip().split("\n")
+                    
+                    if len(lines) < 2:
+                        print(f"Warning: rocm-smi returned insufficient data. Output: {gpu_info[:200]}")
+                        return []
+                    
+                    header = lines[0].lower()
+                    mem_col_idx = None
+                    gpu_id_col_idx = 0
+                    
+                    for i, col in enumerate(header.split(",")):
+                        col = col.strip()
+                        if "vram" in col or ("memory" in col and "allocated" in col):
+                            mem_col_idx = i
+                            break
+                    
+                    if mem_col_idx is None:
+                        mem_col_idx = 1
+                    
+                    for i, line in enumerate(lines[1:], 1):
+                        if not line.strip():
+                            continue
+                        parts = [p.strip() for p in line.split(",")]
+                        if len(parts) > max(gpu_id_col_idx, mem_col_idx):
+                            try:
+                                device_str = parts[gpu_id_col_idx]
+                                if device_str.startswith("card"):
+                                    gpu_id = int(device_str.replace("card", ""))
+                                else:
+                                    gpu_id = int(device_str)
+                                
+                                mem_str = parts[mem_col_idx].strip()
+                                mem_used = int(float(mem_str))
+                                
+                                gpu_data.append((gpu_id, mem_used))
+                            except (ValueError, IndexError) as e:
+                                print(f"Warning: Failed to parse GPU info from line {i}: {line[:100]}, error: {e}")
+                                continue
+                    
+                    if not gpu_data:
+                        print(f"Warning: No GPU data parsed from rocm-smi. Output: {gpu_info[:500]}")
+                    
+                    return gpu_data
+                except subprocess.CalledProcessError as e:
+                    print(f"Error running rocm-smi: {e.stderr.decode() if e.stderr else str(e)}")
+                    return []
+                except FileNotFoundError:
+                    print("Warning: rocm-smi command not found")
+                    return []
+                except Exception as e:
+                    print(f"Unexpected error getting GPU info: {e}")
+                    return []
+
         while True:
-            gpu_info = subprocess.check_output(
-                ["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader,nounits"]
-            ).decode()
+            gpu_data = _get_gpu_memory_info()
+            
+            if not gpu_data:
+                print("Warning: Could not detect any GPUs. Trying fallback method...")
+                try:
+                    result = subprocess.run(
+                        ["rocm-smi"],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    if result.returncode == 0:
+                        gpu_ids = []
+                        for line in result.stdout.split("\n"):
+                            if "GPU[" in line:
+                                try:
+                                    start = line.find("GPU[") + 4
+                                    end = line.find("]", start)
+                                    if end > start:
+                                        gpu_id = int(line[start:end])
+                                        if 0 <= gpu_id < 16:
+                                            if gpu_id not in gpu_ids:
+                                                gpu_ids.append(gpu_id)
+                                                gpu_data.append((gpu_id, 0))
+                                except (ValueError, IndexError):
+                                    continue
+                        if gpu_data:
+                            print(f"Fallback: Detected {len(gpu_data)} GPUs (IDs: {sorted(gpu_ids)}), assuming 0 MB used")
+                        else:
+                            print(f"Fallback: Could not parse GPU IDs from rocm-smi output")
+                except Exception as e:
+                    print(f"Fallback method also failed: {e}")
+            
             available_gpus = []
-            for line in gpu_info.strip().split("\n"):
-                gpu_id, mem_used = map(int, line.split(", "))
-                print(f"GPU {gpu_id} has {mem_used} MB used")
+            for gpu_id, mem_used in gpu_data:
+                print(f"GPU {gpu_id} has {mem_used} MB used (limit: {mem_limit} MB)")
                 if mem_used < mem_limit:
                     available_gpus.append(gpu_id)
-                    print(f"GPU {available_gpus} is available")
-
+            
             if available_gpus:
-                yield random.choice(available_gpus)
+                selected_gpu = random.choice(available_gpus)
+                print(f"Selected GPU {selected_gpu} from available GPUs: {available_gpus}")
+                yield selected_gpu
             else:
+                if gpu_data:
+                    print(f"No GPUs available (all {len(gpu_data)} GPUs exceed memory limit of {mem_limit} MB)")
+                else:
+                    print("No GPUs detected at all")
                 elapsed_time = time.time() - start_time
-                print(f"No GPUs available, waiting for a free GPU... (elapsed: {elapsed_time/60:.1f} minutes)")
+                print(f"Waiting for a free GPU... (elapsed: {elapsed_time/60:.1f} minutes)")
                 if elapsed_time > timeout:
                     print(f"Warning: No GPU available after {timeout/60:.1f} minutes, continuing to wait...")
                     start_time = time.time()
@@ -856,6 +977,7 @@ class Experiments:
             active_futures = {}
 
             print(f"Submitting initial batch to max workers {max_workers}...")
+            single_job_path = Path(__file__).parent.parent.parent.parent.parent / "single_job.py"
             jobs_submitted = 0
             for i in range(max_workers):
                 try:
@@ -869,6 +991,7 @@ class Experiments:
                             "reembed_checkpoint": reembed_checkpoint,
                             "batch_size_inference": batch_size_inference,
                             "seed": self.seed,
+                            "single_job_path": single_job_path,
                         }
                     )
                     future = executor.submit(JobProcessor(**job_args))
@@ -911,6 +1034,7 @@ class Experiments:
                             "reembed_checkpoint": reembed_checkpoint,
                             "batch_size_inference": batch_size_inference,
                             "seed": self.seed,
+                            "single_job_path": single_job_path,
                         }
                     )
                     new_future = executor.submit(JobProcessor(**job_args))
@@ -1102,6 +1226,7 @@ class Experiments:
                     "early_stopping_patience": 3,
                     "signal_columns": self.signal_columns,
                     "seed": self.seed,
+                    "path_to_data_dir": self.path_to_data_dir,
                 }
                 all_jobs.append(job)
 
@@ -1134,27 +1259,135 @@ class Experiments:
                 mem_limit = self.mem_limit[algo] if algo in self.mem_limit else self.mem_limit["default"]
                 start_time = time.time()
 
+                def _get_gpu_memory_info():
+                    """Get GPU memory info, supporting both NVIDIA and ROCm."""
+                    try:
+                        gpu_info = subprocess.check_output(
+                            ["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader,nounits"],
+                            stderr=subprocess.DEVNULL
+                        ).decode()
+                        gpu_data = []
+                        for line in gpu_info.strip().split("\n"):
+                            if line.strip():
+                                gpu_id, mem_used = map(int, line.split(", "))
+                                gpu_data.append((gpu_id, mem_used))
+                        return gpu_data
+                    except (subprocess.CalledProcessError, FileNotFoundError):
+                        try:
+                            gpu_info = subprocess.check_output(
+                                ["rocm-smi", "--alldevices", "--showmemuse", "--csv"],
+                                stderr=subprocess.PIPE
+                            ).decode()
+                            gpu_data = []
+                            lines = gpu_info.strip().split("\n")
+                            
+                            if len(lines) < 2:
+                                print(f"Warning: rocm-smi returned insufficient data. Output: {gpu_info[:200]}")
+                                return []
+                            
+                            header = lines[0].lower()
+                            mem_col_idx = None
+                            gpu_id_col_idx = 0
+                            
+                            for i, col in enumerate(header.split(",")):
+                                col = col.strip()
+                                if "vram" in col or ("memory" in col and "allocated" in col):
+                                    mem_col_idx = i
+                                    break
+                            
+                            if mem_col_idx is None:
+                                mem_col_idx = 1
+                            
+                            for i, line in enumerate(lines[1:], 1):
+                                if not line.strip():
+                                    continue
+                                parts = [p.strip() for p in line.split(",")]
+                                if len(parts) > max(gpu_id_col_idx, mem_col_idx):
+                                    try:
+                                        device_str = parts[gpu_id_col_idx]
+                                        if device_str.startswith("card"):
+                                            gpu_id = int(device_str.replace("card", ""))
+                                        else:
+                                            gpu_id = int(device_str)
+                                        
+                                        mem_str = parts[mem_col_idx].strip()
+                                        mem_used = int(float(mem_str))
+                                        
+                                        gpu_data.append((gpu_id, mem_used))
+                                    except (ValueError, IndexError) as e:
+                                        print(f"Warning: Failed to parse GPU info from line {i}: {line[:100]}, error: {e}")
+                                        continue
+                            
+                            if not gpu_data:
+                                print(f"Warning: No GPU data parsed from rocm-smi. Output: {gpu_info[:500]}")
+                            
+                            return gpu_data
+                        except subprocess.CalledProcessError as e:
+                            print(f"Error running rocm-smi: {e.stderr.decode() if e.stderr else str(e)}")
+                            return []
+                        except FileNotFoundError:
+                            print("Warning: rocm-smi command not found")
+                            return []
+                        except Exception as e:
+                            print(f"Unexpected error getting GPU info: {e}")
+                            return []
+
                 while True:
-                    gpu_info = subprocess.check_output(
-                        ["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader,nounits"]
-                    ).decode()
+                    gpu_data = _get_gpu_memory_info()
+                    
+                    if not gpu_data:
+                        print("Warning: Could not detect any GPUs. Trying fallback method...")
+                        try:
+                            result = subprocess.run(
+                                ["rocm-smi"],
+                                capture_output=True,
+                                text=True,
+                                timeout=5
+                            )
+                            if result.returncode == 0:
+                                gpu_ids = []
+                                for line in result.stdout.split("\n"):
+                                    if "GPU[" in line:
+                                        try:
+                                            start = line.find("GPU[") + 4
+                                            end = line.find("]", start)
+                                            if end > start:
+                                                gpu_id = int(line[start:end])
+                                                if 0 <= gpu_id < 16:
+                                                    if gpu_id not in gpu_ids:
+                                                        gpu_ids.append(gpu_id)
+                                                        gpu_data.append((gpu_id, 0))
+                                        except (ValueError, IndexError):
+                                            continue
+                                if gpu_data:
+                                    print(f"Fallback: Detected {len(gpu_data)} GPUs (IDs: {sorted(gpu_ids)}), assuming 0 MB used")
+                                else:
+                                    print(f"Fallback: Could not parse GPU IDs from rocm-smi output")
+                        except Exception as e:
+                            print(f"Fallback method also failed: {e}")
+                    
                     available_gpus = []
-                    for line in gpu_info.strip().split("\n"):
-                        gpu_id, mem_used = map(int, line.split(", "))
+                    for gpu_id, mem_used in gpu_data:
                         if mem_used < mem_limit:
                             available_gpus.append(gpu_id)
 
                     if available_gpus:
-                        yield random.choice(available_gpus)
+                        selected_gpu = random.choice(available_gpus)
+                        yield selected_gpu
                     else:
+                        if gpu_data:
+                            print(f"No GPUs available (all {len(gpu_data)} GPUs exceed memory limit of {mem_limit} MB)")
+                        else:
+                            print("No GPUs detected at all")
                         elapsed_time = time.time() - start_time
-                        print(f"No GPUs available, waiting for a free GPU... (elapsed: {elapsed_time/60:.1f} minutes)")
+                        print(f"Waiting for a free GPU... (elapsed: {elapsed_time/60:.1f} minutes)")
                         if elapsed_time > timeout:
                             print(f"Warning: No GPU available after {timeout/60:.1f} minutes, continuing to wait...")
                             start_time = time.time()
                         time.sleep(60)
 
         job_iterator = CheckpointJobIterator(all_jobs, mem_limit)
+        single_job_path = Path(__file__).parent.parent.parent.parent.parent / "single_job.py"
 
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             active_futures = {}
@@ -1164,6 +1397,7 @@ class Experiments:
             for i in range(max_workers):
                 try:
                     job_args = next(job_iterator)
+                    job_args["single_job_path"] = single_job_path
                     future = executor.submit(JobProcessor(**job_args))
                     active_futures[future] = job_args
                     jobs_submitted += 1
@@ -1195,6 +1429,7 @@ class Experiments:
 
                 try:
                     job_args = next(job_iterator)
+                    job_args["single_job_path"] = single_job_path
                     new_future = executor.submit(JobProcessor(**job_args))
                     active_futures[new_future] = job_args
                     print(
@@ -1224,13 +1459,24 @@ class JobProcessor:
         reembed_checkpoint = kwargs.get("reembed_checkpoint", None)
         batch_size_inference = kwargs.get("batch_size_inference", None)
         seed = kwargs.get("seed", 42)
+        path_to_data_dir = kwargs.get("path_to_data_dir", None)
 
         print(dataset, size, quality, algo, max_epochs, early_stopping_patience, device)
-        path_to_data_dir = Path("/home/jupyter/igor_repos/noise_scaling_laws/data")
+        
+        if path_to_data_dir is None:
+            path_to_data_dir = Path("/home/jupyter/igor_repos/noise_scaling_laws/data")
+        else:
+            path_to_data_dir = Path(path_to_data_dir)
+        
+        single_job_path = kwargs.get("single_job_path", None)
+        if single_job_path is None:
+            single_job_path = Path(__file__).parent.parent.parent.parent.parent / "single_job.py"
+        else:
+            single_job_path = Path(single_job_path)
 
         self.cmd = [
             "python",
-            "/home/jupyter/igor_repos/noise_scaling_laws/single_job.py",
+            str(single_job_path),
             "--sizes",
             str(size),
             "--qualities",
