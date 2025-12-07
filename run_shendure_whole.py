@@ -2,9 +2,9 @@ from scaling_laws.prepare.data import Experiments
 import numpy as np
 
 datasets = ["shendure"]
-sizes = list(map(int, np.logspace(2, 7, 10)))
-qualities = list(map(lambda x: round(x, 7), np.logspace(0, np.log10(10 / 2500), 10)))
-path_to_data_dir = "/mnt/nvme/noise_laws/data"
+sizes = [10000000]
+qualities = [0.0859506]
+path_to_data_dir = "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/outputs/2025-12-02_19_48_download_necessary_models"
 signal_columns = ["author_day"]
 seeds = [42]
 
@@ -12,50 +12,18 @@ experiments: Experiments = Experiments(
     datasets=datasets,
     sizes=sizes,
     qualities=qualities,
-    algos=["PCA", "SCVI", "Geneformer", "RandomProjection"],
+    algos=["Geneformer", "PCA", "SCVI", "RandomProjection"],
     path_to_data_dir=path_to_data_dir,
     signal_columns=signal_columns,
-    seed=seeds[0],
+    device=0,
+    seed=42,
 )
 
-experiments.make_training_set(
-    remove_old=False,
-    download_raw_data=True,
-    sample_dataset=True,
-    downsample_dataset=True,
+experiments.parallel_run(
+    max_workers=100,
+    sleep_time=0.2,
+    retrain=False,
+    reembed=True,
+    recompute_mutual_information=True,
+    mem_limit={"Geneformer": 23_000, "default": 23_000},
 )
-experiments.make_validation_set(remove_old=False)
-
-experiments.make_test_set(remove_old=False)
-
-experiments.tokenize_median_files(
-    partition_size=15_000_000,
-    chunk_size=15_000_000,
-    nproc=32,
-    recompute_median_files=True,
-    train=True,
-    validation=True,
-    test=True,
-)
-
-for seed in seeds:
-
-    experiments: Experiments = Experiments(
-        datasets=datasets,
-        sizes=sizes,
-        qualities=qualities,
-        algos=["Geneformer","PCA", "SCVI", "RandomProjection"],
-        path_to_data_dir=path_to_data_dir,
-        signal_columns=signal_columns,
-        device=0,
-        seed=seed,
-    )
-
-    experiments.parallel_run(
-        max_workers=100,
-        sleep_time=0.2,
-        retrain=True,
-        reembed=True,
-        recompute_mutual_information=True,
-        mem_limit={"Geneformer": 240_000, "default": 240_000},
-    )
