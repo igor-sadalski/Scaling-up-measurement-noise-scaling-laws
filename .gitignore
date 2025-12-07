@@ -13,3 +13,4 @@ analysis/intermediate_fits_noise_scaling/
 amd_setup.sh
 S1R1_cxg.csv
 S1R1_meta.csv
+outputs/
