@@ -13,9 +13,9 @@ if not os.path.exists(dst_folder):
 
 experiment_configs = {
     "PBMC": (100000, 0.1072766, ["celltype.l3", "protein_counts"]),
-    # "larry": (100000, 0.0847557, ["index", "clone", "time"]),
-    # "shendure": (10000000, 0.0859506, ["author_day"]),
-    # "merfish": (60000, 0.0905502, ["cur_idx", "ng_idx"]),
+    "larry": (100000, 0.0847557, ["index", "clone", "time"]),
+    "shendure": (10000000, 0.0859506, ["author_day"]),
+    "merfish": (60000, 0.0905502, ["cur_idx", "ng_idx"]),
 }
 
 def run_dataset_experiments(dataset_name, size, quality, signal_columns, dst_folder):
@@ -29,8 +29,7 @@ def run_dataset_experiments(dataset_name, size, quality, signal_columns, dst_fol
         datasets=[dataset_name],
         sizes=[size],
         qualities=[quality],
-        # algos=["Geneformer", "PCA", "SCVI", "RandomProjection"],
-        algos=["Geneformer"],
+        algos=["Geneformer", "PCA", "SCVI", "RandomProjection"],
         path_to_data_dir=dst_folder,
         signal_columns=signal_columns,
         device=0,

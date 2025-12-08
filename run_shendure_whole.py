@@ -3,8 +3,8 @@ import numpy as np
 
 datasets = ["shendure"]
 sizes = [10000000]
-qualities = [0.0859506]
-path_to_data_dir = "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/outputs/2025-12-02_19_48_download_necessary_models"
+qualities = [1.0]
+path_to_data_dir = "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/outputs/2025-12-07_17-37_rerun_shendure_whole"
 signal_columns = ["author_day"]
 seeds = [42]
 
@@ -12,7 +12,7 @@ experiments: Experiments = Experiments(
     datasets=datasets,
     sizes=sizes,
     qualities=qualities,
-    algos=["Geneformer", "PCA", "SCVI", "RandomProjection"],
+    algos=["PCA"],
     path_to_data_dir=path_to_data_dir,
     signal_columns=signal_columns,
     device=0,
@@ -22,7 +22,7 @@ experiments: Experiments = Experiments(
 experiments.parallel_run(
     max_workers=100,
     sleep_time=0.2,
-    retrain=False,
+    retrain=True,
     reembed=True,
     recompute_mutual_information=True,
     mem_limit={"Geneformer": 23_000, "default": 23_000},
