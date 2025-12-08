@@ -22,3 +22,5 @@ for accuracy in "${ACCURACIES[@]}"; do
         cp -r $BASE_FOLDER/shendure/test/1.0 $BASE_FOLDER/shendure/test/$accuracy
     fi
 done
+
+find /home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/outputs/2025-12-07_23-12_download_different_geneformer_models/shendure/10000000 -type d -name '*checkpoint*' -exec rm -rf {} +

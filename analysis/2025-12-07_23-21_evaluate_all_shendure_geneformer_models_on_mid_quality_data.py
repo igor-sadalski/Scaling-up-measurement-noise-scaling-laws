@@ -4,7 +4,6 @@ from pathlib import Path
 
 import shutil
 import os
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 src_folder = "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/outputs/2025-12-07_23-12_download_different_geneformer_models"
 dst_folder = "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/outputs/2025-12-07_23-21_evaluate_all_shendure_geneformer_models_on_mid_quality_data"
@@ -12,11 +11,12 @@ dst_folder = "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-no
 if not os.path.exists(dst_folder):
     shutil.copytree(src_folder, dst_folder)
 
-dataset_name = "shendure"
-size = 10000000
-signal_columns = ["author_day"]
+# qualities = [1.0, 0.5414548, 0.2931733, 0.1587401, 0.0859506, 0.0465384, 0.0251984, 0.0136438, 0.0073875, 0.004]
+qualities = [0.0251984]
 
-qualities = [1.0, 0.5414548, 0.2931733, 0.1587401, 0.0859506, 0.0465384, 0.0251984, 0.0136438, 0.0073875, 0.004]
+datasets = {
+    "shendure": (10000000, qualities, ["author_day"]),
+}
 
 def run_model_evaluation(quality, dataset_name, size, signal_columns, dst_folder):
     """Evaluate a model trained on quality on the same quality data."""
@@ -31,18 +31,14 @@ def run_model_evaluation(quality, dataset_name, size, signal_columns, dst_folder
         print(f"Warning: Model path does not exist: {model_path}")
         return None
     
-    checkpoint_dirs = [p for p in model_path.iterdir() if p.is_dir() and p.name.startswith("checkpoint")]
-    if not checkpoint_dirs:
-        print(f"Warning: No checkpoints found in {model_path}")
+    # Use the model directory directly instead of checkpoints
+    model_dir = model_path / "model"
+    
+    if not model_dir.exists():
+        print(f"Warning: Model directory does not exist: {model_dir}")
         return None
     
-    checkpoint_dirs = sorted(
-        checkpoint_dirs,
-        key=lambda p: int(p.name.split("-")[1]) if "-" in p.name and p.name.split("-")[1].isdigit() else 0,
-    )
-    checkpoint_path = checkpoint_dirs[-1]
-    
-    print(f"Using checkpoint: {checkpoint_path}")
+    print(f"Using model: {model_dir}")
     
     experiments: Experiments = Experiments(
         datasets=[dataset_name],
@@ -56,35 +52,35 @@ def run_model_evaluation(quality, dataset_name, size, signal_columns, dst_folder
     )
     
     experiments.parallel_run(
-        max_workers=100,
+        max_workers=7,
         sleep_time=0.2,
         retrain=False,
         reembed=True,
         recompute_mutual_information=True,
-        reembed_checkpoint=str(checkpoint_path),
+        reembed_checkpoint=str(model_dir),
         mem_limit={"Geneformer": 23_000, "default": 23_000},
     )
     
     print(f"\nCompleted evaluation for model trained on quality {quality}\n")
     return quality
 
-with ThreadPoolExecutor(max_workers=len(qualities)) as executor:
-    futures = {
-        executor.submit(
-            run_model_evaluation, 
-            quality,
-            dataset_name, 
-            size, 
-            signal_columns, 
-            dst_folder
-        ): quality
-        for quality in qualities
-    }
+# Iterate over datasets sequentially
+for dataset_name, (size, qualities_list, signal_columns) in datasets.items():
+    print(f"\n{'='*80}")
+    print(f"Processing dataset: {dataset_name}")
+    print(f"Size: {size}, Qualities: {len(qualities_list)}, Signal columns: {signal_columns}")
+    print(f"{'='*80}\n")
     
-    for future in as_completed(futures):
-        quality = futures[future]
+    # Iterate over qualities sequentially
+    for quality in qualities_list:
         try:
-            result = future.result()
+            result = run_model_evaluation(
+                quality,
+                dataset_name,
+                size,
+                signal_columns,
+                dst_folder
+            )
             if result:
                 print(f"✓ Successfully completed evaluation for model trained on quality {result}")
         except Exception as e:
