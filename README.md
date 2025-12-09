@@ -16,5 +16,4 @@ python run_merfish_whole.py
 python run_pbmc_whole.py
 python run_shendure_whole.py
 ```
-
 for first run, uncomment tokenization code in each script, and run all cells in `hvg.ipynb` to precompute HVGs.
