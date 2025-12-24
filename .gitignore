@@ -1,4 +1,6 @@
 data/
+*/slurm_logs/*
+*.pt
 .venv/
 *.egg-info/
 __pycache__/
