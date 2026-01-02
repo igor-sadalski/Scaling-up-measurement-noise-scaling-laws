@@ -1,0 +1,192 @@
+dataset,curve_identifier,r_squared
+sequences,model_size=150M,0.9880163858298394
+sequences,model_size=35M,0.9900727405863653
+sequences,model_size=8M,0.9974700525794749
+transcriptomics,"signal=Protein MI, size=100, method=PCA",0.9912381145047955
+transcriptomics,"signal=Protein MI, size=100, method=SCVI",0.985305792883335
+transcriptomics,"signal=Protein MI, size=100, method=Geneformer",0.9399084513959144
+transcriptomics,"signal=Protein MI, size=100, method=Rand. Proj.",0.9968629768900833
+transcriptomics,"signal=Protein MI, size=215, method=PCA",0.9936698165328183
+transcriptomics,"signal=Protein MI, size=215, method=SCVI",0.9829709450831409
+transcriptomics,"signal=Protein MI, size=215, method=Geneformer",0.8379058429629398
+transcriptomics,"signal=Protein MI, size=215, method=Rand. Proj.",0.9969952253495616
+transcriptomics,"signal=Protein MI, size=464, method=PCA",0.9948053681499197
+transcriptomics,"signal=Protein MI, size=464, method=SCVI",0.9764947166837696
+transcriptomics,"signal=Protein MI, size=464, method=Geneformer",0.9907324044326923
+transcriptomics,"signal=Protein MI, size=464, method=Rand. Proj.",0.9974556336517031
+transcriptomics,"signal=Protein MI, size=1000, method=PCA",0.9953584719085472
+transcriptomics,"signal=Protein MI, size=1000, method=SCVI",0.9773630355096652
+transcriptomics,"signal=Protein MI, size=1000, method=Geneformer",0.9743957280731621
+transcriptomics,"signal=Protein MI, size=1000, method=Rand. Proj.",0.9970965979183818
+transcriptomics,"signal=Protein MI, size=2154, method=PCA",0.9952003793766174
+transcriptomics,"signal=Protein MI, size=2154, method=SCVI",0.9789048127177099
+transcriptomics,"signal=Protein MI, size=2154, method=Geneformer",0.9454515720621698
+transcriptomics,"signal=Protein MI, size=2154, method=Rand. Proj.",0.9971024303513785
+transcriptomics,"signal=Protein MI, size=4641, method=PCA",0.9980441801135096
+transcriptomics,"signal=Protein MI, size=4641, method=SCVI",0.98289186594729
+transcriptomics,"signal=Protein MI, size=4641, method=Geneformer",0.9352258873391028
+transcriptomics,"signal=Protein MI, size=4641, method=Rand. Proj.",0.997123059153105
+transcriptomics,"signal=Protein MI, size=10000, method=PCA",0.994287080298192
+transcriptomics,"signal=Protein MI, size=10000, method=SCVI",0.9965619580659056
+transcriptomics,"signal=Protein MI, size=10000, method=Geneformer",0.975878631943245
+transcriptomics,"signal=Protein MI, size=10000, method=Rand. Proj.",0.996850087282303
+transcriptomics,"signal=Protein MI, size=21544, method=PCA",0.9972407555034424
+transcriptomics,"signal=Protein MI, size=21544, method=SCVI",0.9988502590660506
+transcriptomics,"signal=Protein MI, size=21544, method=Geneformer",0.9805043918763986
+transcriptomics,"signal=Protein MI, size=21544, method=Rand. Proj.",0.9969177675065074
+transcriptomics,"signal=Protein MI, size=46415, method=PCA",0.9958454387415698
+transcriptomics,"signal=Protein MI, size=46415, method=SCVI",0.9978837063675736
+transcriptomics,"signal=Protein MI, size=46415, method=Geneformer",0.9621236253464096
+transcriptomics,"signal=Protein MI, size=46415, method=Rand. Proj.",0.9974620581345923
+transcriptomics,"signal=Protein MI, size=100000, method=PCA",0.9947736808449309
+transcriptomics,"signal=Protein MI, size=100000, method=SCVI",0.9965266312186444
+transcriptomics,"signal=Protein MI, size=100000, method=Geneformer",0.9845524058874129
+transcriptomics,"signal=Protein MI, size=100000, method=Rand. Proj.",0.9972327490435531
+transcriptomics,"signal=Clonal MI, size=100, method=PCA",0.9913057334875229
+transcriptomics,"signal=Clonal MI, size=100, method=SCVI",0.986768964949397
+transcriptomics,"signal=Clonal MI, size=100, method=Geneformer",0.4530348489122329
+transcriptomics,"signal=Clonal MI, size=100, method=Rand. Proj.",0.9550595264036418
+transcriptomics,"signal=Clonal MI, size=215, method=PCA",0.9902440738860088
+transcriptomics,"signal=Clonal MI, size=215, method=SCVI",0.9930813840185415
+transcriptomics,"signal=Clonal MI, size=215, method=Geneformer",0.8688506419501356
+transcriptomics,"signal=Clonal MI, size=215, method=Rand. Proj.",0.9550595264036418
+transcriptomics,"signal=Clonal MI, size=464, method=PCA",0.9913384349838626
+transcriptomics,"signal=Clonal MI, size=464, method=SCVI",0.9723160248642646
+transcriptomics,"signal=Clonal MI, size=464, method=Geneformer",0.958669055813723
+transcriptomics,"signal=Clonal MI, size=464, method=Rand. Proj.",0.9550595264036418
+transcriptomics,"signal=Clonal MI, size=1000, method=PCA",0.9931933038412425
+transcriptomics,"signal=Clonal MI, size=1000, method=SCVI",0.9819875249667337
+transcriptomics,"signal=Clonal MI, size=1000, method=Geneformer",0.9646090991412465
+transcriptomics,"signal=Clonal MI, size=1000, method=Rand. Proj.",0.9550595264036418
+transcriptomics,"signal=Clonal MI, size=2154, method=PCA",0.9926793187472246
+transcriptomics,"signal=Clonal MI, size=2154, method=SCVI",0.9889214826556765
+transcriptomics,"signal=Clonal MI, size=2154, method=Geneformer",0.9847734625184149
+transcriptomics,"signal=Clonal MI, size=2154, method=Rand. Proj.",0.9550595264036418
+transcriptomics,"signal=Clonal MI, size=4641, method=PCA",0.9920150080663975
+transcriptomics,"signal=Clonal MI, size=4641, method=SCVI",0.9924972507921157
+transcriptomics,"signal=Clonal MI, size=4641, method=Geneformer",0.9811236144223782
+transcriptomics,"signal=Clonal MI, size=4641, method=Rand. Proj.",0.9550595264036418
+transcriptomics,"signal=Clonal MI, size=10000, method=PCA",0.9936732554540735
+transcriptomics,"signal=Clonal MI, size=10000, method=SCVI",0.9923499832795359
+transcriptomics,"signal=Clonal MI, size=10000, method=Geneformer",0.947827694068536
+transcriptomics,"signal=Clonal MI, size=10000, method=Rand. Proj.",0.9550595264036418
+transcriptomics,"signal=Clonal MI, size=21544, method=PCA",0.9923302703695394
+transcriptomics,"signal=Clonal MI, size=21544, method=SCVI",0.993113956326631
+transcriptomics,"signal=Clonal MI, size=21544, method=Geneformer",0.9836497482263901
+transcriptomics,"signal=Clonal MI, size=21544, method=Rand. Proj.",0.9550595264036418
+transcriptomics,"signal=Clonal MI, size=46415, method=PCA",0.993409847304568
+transcriptomics,"signal=Clonal MI, size=46415, method=SCVI",0.994967983360512
+transcriptomics,"signal=Clonal MI, size=46415, method=Geneformer",0.9006556589497858
+transcriptomics,"signal=Clonal MI, size=46415, method=Rand. Proj.",0.9550595264036418
+transcriptomics,"signal=Clonal MI, size=100000, method=PCA",0.9919669106378058
+transcriptomics,"signal=Clonal MI, size=100000, method=SCVI",0.9949836424892599
+transcriptomics,"signal=Clonal MI, size=100000, method=Geneformer",0.985257758431584
+transcriptomics,"signal=Clonal MI, size=100000, method=Rand. Proj.",0.9550595264036418
+transcriptomics,"signal=Temporal MI, size=100, method=PCA",0.9859945115627661
+transcriptomics,"signal=Temporal MI, size=100, method=SCVI",0.9938517866664964
+transcriptomics,"signal=Temporal MI, size=100, method=Geneformer",0.9540225474504506
+transcriptomics,"signal=Temporal MI, size=100, method=Rand. Proj.",0.9936862311250168
+transcriptomics,"signal=Temporal MI, size=4641, method=PCA",0.9788996906207523
+transcriptomics,"signal=Temporal MI, size=4641, method=SCVI",0.9930173600087303
+transcriptomics,"signal=Temporal MI, size=4641, method=Geneformer",0.9943790066449281
+transcriptomics,"signal=Temporal MI, size=4641, method=Rand. Proj.",0.9936862311250168
+transcriptomics,"signal=Temporal MI, size=359, method=PCA",0.9829862851766983
+transcriptomics,"signal=Temporal MI, size=359, method=SCVI",0.9915761528065742
+transcriptomics,"signal=Temporal MI, size=359, method=Geneformer",0.9926092074086021
+transcriptomics,"signal=Temporal MI, size=359, method=Rand. Proj.",0.9936862311250168
+transcriptomics,"signal=Temporal MI, size=1291, method=PCA",0.9729727693355995
+transcriptomics,"signal=Temporal MI, size=1291, method=SCVI",0.9892670730726887
+transcriptomics,"signal=Temporal MI, size=1291, method=Geneformer",0.9817493674112644
+transcriptomics,"signal=Temporal MI, size=1291, method=Rand. Proj.",0.9936862311250168
+transcriptomics,"signal=Temporal MI, size=16681, method=PCA",0.9764507703336412
+transcriptomics,"signal=Temporal MI, size=16681, method=SCVI",0.9926814853622239
+transcriptomics,"signal=Temporal MI, size=16681, method=Geneformer",0.9978105069726418
+transcriptomics,"signal=Temporal MI, size=16681, method=Rand. Proj.",0.9936862311250168
+transcriptomics,"signal=Temporal MI, size=59948, method=PCA",0.9764888039433073
+transcriptomics,"signal=Temporal MI, size=59948, method=SCVI",0.9802815380336607
+transcriptomics,"signal=Temporal MI, size=59948, method=Geneformer",0.9923416238282724
+transcriptomics,"signal=Temporal MI, size=59948, method=Rand. Proj.",0.9936862311250168
+transcriptomics,"signal=Temporal MI, size=215443, method=PCA",0.9722337008951981
+transcriptomics,"signal=Temporal MI, size=215443, method=SCVI",0.9964807222268879
+transcriptomics,"signal=Temporal MI, size=215443, method=Geneformer",0.991641220550748
+transcriptomics,"signal=Temporal MI, size=215443, method=Rand. Proj.",0.9936862311250168
+transcriptomics,"signal=Temporal MI, size=774263, method=PCA",0.979832773829761
+transcriptomics,"signal=Temporal MI, size=774263, method=SCVI",0.9922274217285694
+transcriptomics,"signal=Temporal MI, size=774263, method=Geneformer",0.9913129776486865
+transcriptomics,"signal=Temporal MI, size=774263, method=Rand. Proj.",0.9936862311250168
+transcriptomics,"signal=Temporal MI, size=2782559, method=PCA",0.9741730264067432
+transcriptomics,"signal=Temporal MI, size=2782559, method=SCVI",0.992243850968484
+transcriptomics,"signal=Temporal MI, size=2782559, method=Geneformer",0.9912304405344721
+transcriptomics,"signal=Temporal MI, size=2782559, method=Rand. Proj.",0.9936862311250168
+transcriptomics,"signal=Temporal MI, size=10000000, method=PCA",0.9727261532422893
+transcriptomics,"signal=Temporal MI, size=10000000, method=SCVI",0.9970809996038803
+transcriptomics,"signal=Temporal MI, size=10000000, method=Geneformer",0.9932016280680014
+transcriptomics,"signal=Temporal MI, size=10000000, method=Rand. Proj.",0.9934005215655367
+transcriptomics,"signal=Spatial MI, size=100, method=PCA",0.9961239645627025
+transcriptomics,"signal=Spatial MI, size=100, method=SCVI",0.9937582037185717
+transcriptomics,"signal=Spatial MI, size=100, method=Geneformer",0.9544981995070403
+transcriptomics,"signal=Spatial MI, size=100, method=Rand. Proj.",0.9867471087602799
+transcriptomics,"signal=Spatial MI, size=203, method=PCA",0.997797242035943
+transcriptomics,"signal=Spatial MI, size=203, method=SCVI",0.9944493114620511
+transcriptomics,"signal=Spatial MI, size=203, method=Geneformer",0.9409678100124822
+transcriptomics,"signal=Spatial MI, size=203, method=Rand. Proj.",0.9867471087602799
+transcriptomics,"signal=Spatial MI, size=414, method=PCA",0.9969822558675199
+transcriptomics,"signal=Spatial MI, size=414, method=SCVI",0.9915628994426905
+transcriptomics,"signal=Spatial MI, size=414, method=Geneformer",0.9505949097156983
+transcriptomics,"signal=Spatial MI, size=414, method=Rand. Proj.",0.9867471087602799
+transcriptomics,"signal=Spatial MI, size=843, method=PCA",0.992246291385812
+transcriptomics,"signal=Spatial MI, size=843, method=SCVI",0.9887259795630856
+transcriptomics,"signal=Spatial MI, size=843, method=Geneformer",0.9781356232925217
+transcriptomics,"signal=Spatial MI, size=843, method=Rand. Proj.",0.9867471087602799
+transcriptomics,"signal=Spatial MI, size=1716, method=PCA",0.9876217918412364
+transcriptomics,"signal=Spatial MI, size=1716, method=SCVI",0.9947364170772862
+transcriptomics,"signal=Spatial MI, size=1716, method=Geneformer",0.9927950141075293
+transcriptomics,"signal=Spatial MI, size=1716, method=Rand. Proj.",0.9867471087602799
+transcriptomics,"signal=Spatial MI, size=3494, method=PCA",0.989271602621077
+transcriptomics,"signal=Spatial MI, size=3494, method=SCVI",0.9776160796921511
+transcriptomics,"signal=Spatial MI, size=3494, method=Geneformer",0.9896926982605099
+transcriptomics,"signal=Spatial MI, size=3494, method=Rand. Proj.",0.9867471087602799
+transcriptomics,"signal=Spatial MI, size=7113, method=PCA",0.9815345824294354
+transcriptomics,"signal=Spatial MI, size=7113, method=SCVI",0.996222792866976
+transcriptomics,"signal=Spatial MI, size=7113, method=Geneformer",0.979097871892579
+transcriptomics,"signal=Spatial MI, size=7113, method=Rand. Proj.",0.9867471087602799
+transcriptomics,"signal=Spatial MI, size=14480, method=PCA",0.9851293407655494
+transcriptomics,"signal=Spatial MI, size=14480, method=SCVI",0.9972221428907754
+transcriptomics,"signal=Spatial MI, size=14480, method=Geneformer",0.9833540735572538
+transcriptomics,"signal=Spatial MI, size=14480, method=Rand. Proj.",0.9867471087602799
+transcriptomics,"signal=Spatial MI, size=29475, method=PCA",0.9845309668239032
+transcriptomics,"signal=Spatial MI, size=29475, method=SCVI",0.9944383052524418
+transcriptomics,"signal=Spatial MI, size=29475, method=Geneformer",0.9667719391361235
+transcriptomics,"signal=Spatial MI, size=29475, method=Rand. Proj.",0.9867471087602799
+transcriptomics,"signal=Spatial MI, size=60000, method=PCA",0.9832041092789466
+transcriptomics,"signal=Spatial MI, size=60000, method=SCVI",0.9951891920271886
+transcriptomics,"signal=Spatial MI, size=60000, method=Geneformer",0.9908388855320815
+transcriptomics,"signal=Spatial MI, size=60000, method=Rand. Proj.",0.9867471087602799
+caltech101,"class=0, type=gaussian",0.9941308079867537
+caltech101,"class=1, type=gaussian",0.9892036652396029
+caltech101,"class=3, type=gaussian",0.993154366733129
+caltech101,"class=5, type=gaussian",0.9922747902731478
+caltech101,"class=94, type=gaussian",0.9969773037125775
+caltech101,"class=0, type=resolution",0.9634004188830632
+caltech101,"class=1, type=resolution",0.9829298941168185
+caltech101,"class=3, type=resolution",0.9758364239194487
+caltech101,"class=5, type=resolution",0.9861234467504881
+caltech101,"class=94, type=resolution",0.9708542676628743
+tissuemnist,"type=pixel, column=ova_mi_continuous_Class_7",0.9936910793303483
+tissuemnist,"type=pixel, column=ova_mi_continuous_Class_6",0.9817551090614116
+tissuemnist,"type=pixel, column=ova_mi_continuous_Class_5",0.9924319546983115
+tissuemnist,"type=pixel, column=ova_mi_continuous_Class_4",0.9910177575580069
+tissuemnist,"type=pixel, column=ova_mi_continuous_Class_3",0.9874752962966143
+tissuemnist,"type=pixel, column=ova_mi_continuous_Class_2",0.941225149895484
+tissuemnist,"type=pixel, column=ova_mi_continuous_Class_1",0.9131287512901177
+tissuemnist,"type=pixel, column=ova_mi_continuous_Class_0",0.99453998872317
+tissuemnist,"type=pixel, column=mi_score",0.9859469824993335
+tissuemnist,"type=gaussian, column=ova_mi_continuous_Class_7",0.9616734640436636
+tissuemnist,"type=gaussian, column=ova_mi_continuous_Class_6",0.9792494629805927
+tissuemnist,"type=gaussian, column=ova_mi_continuous_Class_5",0.9933859423545122
+tissuemnist,"type=gaussian, column=ova_mi_continuous_Class_4",0.9779331811332952
+tissuemnist,"type=gaussian, column=ova_mi_continuous_Class_3",0.991205832781581
+tissuemnist,"type=gaussian, column=ova_mi_continuous_Class_2",0.9877774868980781
+tissuemnist,"type=gaussian, column=ova_mi_continuous_Class_1",0.9688920966272375
+tissuemnist,"type=gaussian, column=ova_mi_continuous_Class_0",0.9816522228566626
+tissuemnist,"type=gaussian, column=mi_score",0.9964831991849491
