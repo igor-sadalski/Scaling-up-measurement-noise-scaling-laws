@@ -1,7 +1,7 @@
 # Fdb version 4
-["pdflatex"] 1767974045.17432 "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/2026-01-09_parameter_and_architecture_analysis/SUPPLEMENTAL_METHODS.tex" "SUPPLEMENTAL_METHODS.pdf" "SUPPLEMENTAL_METHODS" 1767974045.71011 0
+["pdflatex"] 1767974517.92842 "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/2026-01-09_parameter_and_architecture_analysis/SUPPLEMENTAL_METHODS.tex" "SUPPLEMENTAL_METHODS.pdf" "SUPPLEMENTAL_METHODS" 1767974518.46854 0
   "/etc/texmf/web2c/texmf.cnf" 1760133491.07977 475 c0e671620eb5563b2130f56340a5fde8 ""
-  "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/2026-01-09_parameter_and_architecture_analysis/SUPPLEMENTAL_METHODS.tex" 1767974044.27662 12549 55361f09d0ec27ded53988cc6b664610 ""
+  "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/2026-01-09_parameter_and_architecture_analysis/SUPPLEMENTAL_METHODS.tex" 1767974516.84318 15371 21e563bf517e2f8269157d0d14935051 ""
   "/usr/share/texlive/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/public/amsfonts/cmextra/cmex7.tfm" 1246382020 1004 54797486969f23fa377b128694d548df ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/public/amsfonts/cmextra/cmex8.tfm" 1246382020 988 bdf658c3bfc2d96d3c8b02cfc1c94c20 ""
@@ -31,11 +31,9 @@
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb" 1248133631 35752 024fb6c41858982481f6968b5fc26508 ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr17.pfb" 1248133631 32362 179c33bbf43f19adbb3825bb4e36e57a ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr6.pfb" 1248133631 32734 69e00a6b65cedb993666e42eedb3d48f ""
-  "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr7.pfb" 1248133631 32762 224316ccc9ad3ca0423a14971cfa7fc1 ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmr9.pfb" 1248133631 33993 9b89b85fd2d9df0482bd47194d1d3bf3 ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy10.pfb" 1248133631 32569 5e5ddc8df908dea60932f3c484a54c0d ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy6.pfb" 1248133631 32587 1788b0c1c5b39540c96f5e42ccd6dae8 ""
-  "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.pfb" 1248133631 32716 08e384dc442464e7285e891af9f45947 ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy9.pfb" 1248133631 32442 c975af247b6702f7ca0c299af3616b80 ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb" 1248133631 37944 359e864bd06cde3b1cf57bb20757fb06 ""
   "/usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmti9.pfb" 1248133631 36310 f5ddc6715cc60deb16d9db5ded6a9391 ""
@@ -101,9 +99,9 @@
   "/usr/share/texmf/web2c/texmf.cnf" 1707919699 40399 f2c302f7d2af602abb742093540a5834 ""
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1764781424.51189 5349216 bf3a80e68d946c7acd95ff030fd9bb63 ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1760133533 6831104 af78a99474017babbe8e3b400d781af7 ""
-  "SUPPLEMENTAL_METHODS.aux" 1767974045.65365 3072 0d445da72398d3f0040dcd4e079ee475 "pdflatex"
-  "SUPPLEMENTAL_METHODS.out" 1767974045.65365 704 48e856e5054958a80c91f34bf1a293d7 "pdflatex"
-  "SUPPLEMENTAL_METHODS.tex" 1767974044.27662 12549 55361f09d0ec27ded53988cc6b664610 ""
+  "SUPPLEMENTAL_METHODS.aux" 1767974518.41321 3322 d40aa4b999216ca6439e5c4f93dd7a4e "pdflatex"
+  "SUPPLEMENTAL_METHODS.out" 1767974518.41421 1085 052215c1f61762c02de80c58caafeac6 "pdflatex"
+  "SUPPLEMENTAL_METHODS.tex" 1767974516.84318 15371 21e563bf517e2f8269157d0d14935051 ""
   "loss_train_eval_geneformer_developmental_10milion_quality1.png" 1767973797.65609 72829 8e6740ee11f565ecccc15420a1bca56f ""
   (generated)
   "SUPPLEMENTAL_METHODS.aux"

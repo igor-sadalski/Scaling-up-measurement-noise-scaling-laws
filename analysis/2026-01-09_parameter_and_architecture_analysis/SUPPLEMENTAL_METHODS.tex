@@ -23,9 +23,9 @@
 
 \section{Geneformer}
 
-Geneformer was implemented using the original repository\cite{theodoris2023geneformer} as a BERT-based transformer (BertForMaskedLM) with 3 layers, a hidden dimension of 256, 4 attention heads, an intermediate size of 512, and a maximum sequence length of 512 tokens. The model contains approximately 13.5 million trainable parameters (13,480,151 for typical datasets with 20,000--30,000 genes), with parameter count scaling linearly with vocabulary size.
+Geneformer was implemented using the original repository\cite{theodoris2023geneformer} as a BERT-based transformer (BertForMaskedLM). The architecture was deliberately reduced in size compared to standard implementations to enable systematic scaling law evaluation across thousands of training runs. The model contains approximately 13.5 million trainable parameters (13,480,151 for typical datasets with 20,000--30,000 genes), with parameter count scaling linearly with vocabulary size due to the embedding layer. Complete hyperparameters are provided in Table~\ref{tab:geneformer_params}.
 
-Training was performed using the HuggingFace Trainer API with AdamW optimizer (learning rate $1 \times 10^{-3}$, 5,000 warmup steps, weight decay 0.001), batch size 64 per device, and length-grouped batching. Epochs scale dynamically as $\max(1, \lfloor 10 \times (10,000,000 / \text{dataset\_size}) \rfloor)$, ranging from 1 epoch (10M cells) to 100,000 epochs (100 cells). Early stopping monitors validation loss every 1,000 steps with a patience of 5. The model uses masked language modeling loss with 15\% token masking. Complete hyperparameters are provided in Table~\ref{tab:geneformer_params}.
+Training was performed using the HuggingFace Trainer API with length-grouped batching to improve efficiency by grouping cells with similar numbers of expressed genes. To ensure consistent training across diverse dataset sizes, epochs scale dynamically as $\max(1, \lfloor 10 \times (10,000,000 / \text{dataset\_size}) \rfloor)$, ensuring smaller datasets receive proportionally more training while larger datasets train for fewer epochs. This scaling strategy ranges from 1 epoch (10M cells) to 100,000 epochs (100 cells), maintaining a constant effective training budget. Early stopping prevents overfitting by monitoring validation loss, and the model uses masked language modeling with 15\% token masking to learn gene-gene relationships.
 
 Data preprocessing involves ranking genes by median expression to assign token IDs. Tokenization was performed using up to 64 parallel processes, partitioning data into 10--15 million cell chunks. Cell embeddings are extracted via mean pooling over all gene tokens from the final transformer layer, producing 256-dimensional vectors.
 
@@ -130,7 +130,7 @@ Total parameters & $\sim$100M \\
 
 \subsection{Training Loss}
 
-Figure~\ref{fig:geneformer_training_loss} shows the training and validation loss curves for Geneformer trained on the developmental task using the full 10 million cells dataset at quality level 1. The model demonstrates stable convergence with both training and validation losses decreasing monotonically. The validation loss closely tracks the training loss, indicating good generalization without overfitting. Early stopping was triggered based on validation loss monitoring every 1,000 steps with a patience of 5 evaluation steps.
+Figure~\ref{fig:geneformer_training_loss} shows the training and validation loss curves for Geneformer trained on the developmental task using the full 10 million cells dataset at quality level 1. The model demonstrates stable convergence with both training and validation losses decreasing monotonically. The validation loss closely tracks the training loss, indicating good generalization without overfitting. Early stopping was triggered based on validation loss monitoring, preventing overfitting while allowing sufficient training.
 
 \begin{figure}[!htbp]
 \centering
@@ -141,9 +141,9 @@ Figure~\ref{fig:geneformer_training_loss} shows the training and validation loss
 
 \section{SCVI}
 
-SCVI\cite{lopez2018scvi} was implemented using \texttt{scvi.model.SCVI} with encoder and decoder networks, each with 1 hidden layer (512 dimensions), a latent dimension of 16, dropout 0.1, gene-specific dispersion, and zero-inflated negative binomial (ZINB) likelihood. Parameter count scales with input genes: 41M for $\sim$20,000 genes, 51M for $\sim$25,000 genes, and 61M for $\sim$30,000 genes.
+SCVI\cite{lopez2018scvi} was implemented using \texttt{scvi.model.SCVI} with a shallow architecture to balance expressiveness and computational efficiency. The model uses gene-specific dispersion and zero-inflated negative binomial (ZINB) likelihood to capture the over-dispersed and sparse nature of single-cell count data. Parameter count scales with input genes due to gene-specific parameters in the decoder: 41M for $\sim$20,000 genes, 51M for $\sim$25,000 genes, and 61M for $\sim$30,000 genes. Complete hyperparameters are provided in Table~\ref{tab:scvi_params}.
 
-Training was performed using Adam optimizer (learning rate $1 \times 10^{-3}$, weight decay $1 \times 10^{-6}$), batch size 512, and epochs scaled as $\max(1, \lfloor 1 \times (10,000,000 / \text{dataset\_size}) \rfloor)$. Early stopping monitors validation ELBO with a patience of 5 epochs. KL divergence warmup is applied over 1 epoch. SCVI operates on raw count data without preprocessing, producing 16-dimensional embeddings as the posterior mean of the latent distribution. Complete hyperparameters are provided in Table~\ref{tab:scvi_params}.
+Training employs a conservative learning rate schedule with minimal weight decay to allow stable optimization of the generative model. Similar to Geneformer, epochs scale dynamically as $\max(1, \lfloor 1 \times (10,000,000 / \text{dataset\_size}) \rfloor)$ to maintain consistent training across dataset sizes, though with a lower scaling factor reflecting the faster convergence of variational autoencoders. KL divergence warmup is applied to gradually introduce the regularization term, preventing the model from collapsing to the prior early in training. SCVI operates on raw count data without preprocessing, leveraging its probabilistic framework to handle technical noise, and produces 16-dimensional embeddings as the posterior mean of the latent distribution.
 
 \begin{table}[!htbp]
 \centering
@@ -195,6 +195,14 @@ PCA was implemented using \texttt{sklearn.decomposition.TruncatedSVD}\cite{pedre
 
 Random Projection was implemented using \texttt{sklearn.random\_projection.GaussianRandomProjection}\cite{pedregosa2011scikit} with 16 components and random state 42. The projection matrix is sampled from $\mathcal{N}(0, 1/16)$ and has no trainable parameters. Fitting uses only the first 5 cells to establish matrix dimensions. The method operates on raw counts without normalization and provides 16-dimensional embeddings.
 
+\section{Mutual Information Estimation}
+
+Mutual information between cell embeddings and biological signals was estimated using Latent Mutual Information (LMI), a neural network-based method that learns a low-dimensional representation optimized for mutual information estimation. LMI was computed using the \texttt{latentmi} library with the following hyperparameters: validation split of 0.3, batch size of 512, and maximum epochs of 300. The method trains a neural network to predict the signal from embeddings, with pointwise mutual information computed for each cell. The final mutual information value is reported as the mean of pointwise estimates across all cells. This approach enables accurate estimation of mutual information for high-dimensional embeddings and continuous or discrete signals, making it suitable for evaluating how well different algorithms preserve biological information across varying data qualities and sizes.
+
+\section{Efficient H5AD File Reading}
+
+To enable efficient processing of datasets containing up to 10 million cells, we developed a custom chunked H5AD reader that allows memory-efficient access to large single-cell datasets stored in the HDF5-based AnnData format. Standard AnnData loading methods require loading entire datasets into memory, which becomes prohibitive for datasets exceeding available RAM. Our \texttt{H5adReader} implementation provides an iterator interface that reads data in configurable chunks (default 1,000 cells), enabling processing of datasets of arbitrary size while maintaining low memory footprint. The reader efficiently handles sparse CSR matrices by directly accessing HDF5 indptr, indices, and data arrays, reconstructing sparse matrices only for requested row ranges. This engineering contribution was essential for processing the largest datasets in our study, particularly the 10 million cell datasets that would otherwise require over 100GB of RAM to load entirely. The chunked reader also supports random sampling and selective row access, enabling efficient data preprocessing and quality-based subsampling without full dataset loading.
+
 \section{Computational Scale}
 
 This study required the execution of approximately 4,000 training runs across 4 datasets (Shendure, PBMC, Larry, MERFISH), 10 dataset sizes (100 to 10 million cells), 10 data quality levels, 4 algorithms (PCA, SCVI, Geneformer, RandomProjection), and typically 3 random seeds (42, 1404, 2701; Shendure used 1 seed). To manage this scale, we developed a custom scheduling system that dynamically allocates GPUs based on real-time memory availability, maintains up to 100 concurrent worker processes, and executes each training run as an isolated subprocess. The system monitors GPU memory usage and assigns jobs only when memory falls below algorithm-specific thresholds (240GB for Geneformer, 33GB for other methods). Epoch counts are dynamically computed based on dataset size for parametric methods, while non-parametric methods require no training configuration. All models and embeddings were saved to disk with comprehensive WandB logging.
@@ -206,7 +214,7 @@ This study required the execution of approximately 4,000 training runs across 4 
 \begin{thebibliography}{99}
 
 \bibitem{theodoris2023geneformer}
-Theodoris, C. V., Xiao, L., Chopra, A., Chaffin, M. D., Al Sayed, Z. R., Hill, M. C., Mantineo, H., Brydon, E., Zeng, Z., Liu, X. S., \& Ellinor, P. T. (2023). Transfer learning enables predictions in network biology. \textit{Nature}, 31 May 2023.
+Theodoris, C. V., Xiao, L., Chopra, A., Chaffin, M. D., Al Sayed, Z. R., Hill, M. C., Mantineo, H., Brydon, E., Zeng, Z., Liu, X. S., \& Ellinor, P. T. (2023). Transfer learning enables predictions in network biology. \textit{Nature}, 618(7965), 616--624.
 
 \bibitem{chen2024geneformer}
 Chen, H., Venkatesh, M. S., Gomez Ortega, J., Mahesh, S. V., Nandi, T., Madduri, R., Pelka, K., \& Theodoris, C. V. (2024). Quantized multi-task learning for context-specific representations of gene network dynamics. \textit{bioRxiv}. \url{https://www.biorxiv.org/content/10.1101/2024.08.16.608180v1}
@@ -215,7 +223,7 @@ Chen, H., Venkatesh, M. S., Gomez Ortega, J., Mahesh, S. V., Nandi, T., Madduri,
 Gandhi, S., Javadi, F., Svensson, V., Khan, U., Jones, M. G., Yu, J., Merico, D., Goodarzi, H., \& Alidoust, N. (2025). Tahoe-x1: Scaling Perturbation-Trained Single-Cell Foundation Models to 3 Billion Parameters. \textit{bioRxiv}. \url{https://www.biorxiv.org/content/10.1101/2025.10.23.683759v1}
 
 \bibitem{cui2023scgpt}
-Cui, H., Wang, C., Maan, H., Pang, K., Luo, F., \& Wang, B. (2023). scGPT: Towards Building a Foundation Model for Single-Cell Multi-omics Using Generative AI. \textit{bioRxiv}.
+Cui, H., Wang, C., Maan, H., Pang, K., Luo, F., \& Wang, B. (2024). scGPT: toward building a foundation model for single-cell multi-omics using generative AI. \textit{Nature Methods}, 21, 1470--1480.
 
 \bibitem{pearce2025transcriptformer}
 Pearce, J. D., et al. (2025). A Cross-Species Generative Cell Atlas Across 1.5 Billion Years of Evolution: The TranscriptFormer Single-cell Model. \textit{bioRxiv}. \url{https://www.biorxiv.org/content/10.1101/2025.04.25.650731v2}
