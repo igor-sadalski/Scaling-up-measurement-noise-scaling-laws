@@ -27,7 +27,7 @@ Geneformer was implemented using the original repository\cite{theodoris2023genef
 
 Parameter count scales linearly with vocabulary size (number of genes) due to the embedding layer and language model head. Measured parameter counts across datasets range from 1.9M to 13.5M depending on the number of genes in each dataset (Table~\ref{tab:parameter_counts}). Complete hyperparameters are provided in Table~\ref{tab:geneformer_params}.
 
-We use a reduced-parameter Geneformer architecture compared to many single-cell transformer models (Table~\ref{tab:hyperparameter_comparison}) to support training thousands of models across different dataset sizes, qualities, and random seeds—conditions where computational cost and overfitting are serious concerns. Larger models such as Geneformer-V1\cite{theodoris2023geneformer} (6 layers, 2048 tokens, pretrained on $\sim$30M cells), Geneformer-V2-104M\cite{chen2024geneformer} (12--18 layers, 4096 tokens, pretrained on $\sim$95M cells), Tahoe-X1\cite{gandhi2025tahoe} (12 layers, 1024 tokens, $\sim$70M parameters, pretrained on $\sim$271M cells), and scGPT\cite{cui2023scgpt} (12 layers, 5000 tokens, $\sim$100M parameters, pretrained on $\sim$33M cells) were all trained with massive compute budgets and far more pretraining data than is available for most biological problems. Even larger models in this space, such as TranscriptFormer\cite{pearce2025transcriptformer} (12 layers, 2047 tokens, 368--542M parameters depending on variant, pretrained on 57--112M cells across multiple species) or STATE\cite{adduri2025state} (8 layers, 512 tokens, $\sim$600M parameters for the embedding model, pretrained on large-scale perturbation datasets), were trained on even more extensive datasets spanning multiple species and hundreds of millions of cells, making such large-scale pretraining infeasible for systematic benchmarking. For our scaling law study, where model throughput matters and parameter counts must fit diverse data size regimes, using a reduced model is critical to feasibility.
+We use a reduced-parameter Geneformer architecture compared to published single-cell transformer models due to smaller training datasets and the large number of studies required. Larger models such as Geneformer-V1\cite{theodoris2023geneformer} (pretrained on $\sim$30M cells), Geneformer-V2-104M\cite{chen2024geneformer} (pretrained on $\sim$95M cells), Tahoe-X1\cite{gandhi2025tahoe} ($\sim$70M parameters, pretrained on $\sim$271M cells), scGPT\cite{cui2023scgpt} ($\sim$100M parameters, pretrained on $\sim$33M cells), TranscriptFormer\cite{pearce2025transcriptformer} (368--542M parameters, pretrained on 57--112M cells), and STATE\cite{adduri2025state} ($\sim$600M parameters) were trained with massive compute budgets and extensive pretraining data, making such large-scale pretraining infeasible for systematic benchmarking.
 
 Figure~\ref{fig:geneformer_training_loss} shows the training and validation loss curves for the Geneformer model trained on the developmental task using the full dataset of 10 million cells at full quality level. The model demonstrates stable convergence with both the training and validation losses decreasing monotonically, and the validation loss closely tracks the training loss, indicating good generalization without overfitting. Early stopping was triggered based on validation loss monitoring, preventing overfitting while allowing sufficient training.
 
@@ -78,26 +78,6 @@ Max epochs & Dynamic (depends on dataset size) \\
 \multicolumn{2}{l}{\textit{Early Stopping}} \\
 Early stopping & Based on validation loss \\
 Patience & 5 steps \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{table}[!htbp]
-\centering
-\caption{Architectural comparison of our Geneformer implementation with published single-cell transformer models.}
-\label{tab:hyperparameter_comparison}
-\small
-\begin{tabular}{lccccc}
-\toprule
-\textbf{Model} & \textbf{Layers} & \textbf{Hidden Dim.} & \textbf{Heads} & \textbf{Intermed. Size} & \textbf{Max Seq. Length} \\
-\midrule
-Our Geneformer & 3 & 256 & 4 & 512 & 512 \\
-Geneformer-V1\cite{theodoris2023geneformer} & 6 & 256 & 4 & 512 & 2048 \\
-Geneformer-V2-104M\cite{chen2024geneformer} & 12 & 768 & 12 & 3072 & 4096 \\
-Tahoe-X1 (70M)\cite{gandhi2025tahoe} & 12 & 512 & 8 & 2048 & 1024 \\
-scGPT\cite{cui2023scgpt} & 12 & 512 & 8 & 512 & 5000 \\
-TranscriptFormer\cite{pearce2025transcriptformer} & 12 & 2048 & 16 & 2048 & 2047 \\
-STATE (SE-600M)\cite{adduri2025state} & 8 & 768 & 12 & 3072 & 512 \\
 \bottomrule
 \end{tabular}
 \end{table}
