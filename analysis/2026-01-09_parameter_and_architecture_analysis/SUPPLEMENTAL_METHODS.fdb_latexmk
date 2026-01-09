@@ -1,7 +1,7 @@
 # Fdb version 4
-["pdflatex"] 1767974517.92842 "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/2026-01-09_parameter_and_architecture_analysis/SUPPLEMENTAL_METHODS.tex" "SUPPLEMENTAL_METHODS.pdf" "SUPPLEMENTAL_METHODS" 1767974518.46854 0
+["pdflatex"] 1767983868.55275 "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/2026-01-09_parameter_and_architecture_analysis/SUPPLEMENTAL_METHODS.tex" "SUPPLEMENTAL_METHODS.pdf" "SUPPLEMENTAL_METHODS" 1767983869.09269 0
   "/etc/texmf/web2c/texmf.cnf" 1760133491.07977 475 c0e671620eb5563b2130f56340a5fde8 ""
-  "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/2026-01-09_parameter_and_architecture_analysis/SUPPLEMENTAL_METHODS.tex" 1767974516.84318 15371 21e563bf517e2f8269157d0d14935051 ""
+  "/home/igor/igor_repos/noise_scaling_laws/Scaling-up-measurement-noise-scaling-laws/analysis/2026-01-09_parameter_and_architecture_analysis/SUPPLEMENTAL_METHODS.tex" 1767983868.95801 13892 8a9e7ee188986b5fcce89a55ee399074 ""
   "/usr/share/texlive/texmf-dist/fonts/map/fontname/texfonts.map" 1577235249 3524 cb3e574dea2d1052e39280babc910dc8 ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/public/amsfonts/cmextra/cmex7.tfm" 1246382020 1004 54797486969f23fa377b128694d548df ""
   "/usr/share/texlive/texmf-dist/fonts/tfm/public/amsfonts/cmextra/cmex8.tfm" 1246382020 988 bdf658c3bfc2d96d3c8b02cfc1c94c20 ""
@@ -99,9 +99,9 @@
   "/usr/share/texmf/web2c/texmf.cnf" 1707919699 40399 f2c302f7d2af602abb742093540a5834 ""
   "/var/lib/texmf/fonts/map/pdftex/updmap/pdftex.map" 1764781424.51189 5349216 bf3a80e68d946c7acd95ff030fd9bb63 ""
   "/var/lib/texmf/web2c/pdftex/pdflatex.fmt" 1760133533 6831104 af78a99474017babbe8e3b400d781af7 ""
-  "SUPPLEMENTAL_METHODS.aux" 1767974518.41321 3322 d40aa4b999216ca6439e5c4f93dd7a4e "pdflatex"
-  "SUPPLEMENTAL_METHODS.out" 1767974518.41421 1085 052215c1f61762c02de80c58caafeac6 "pdflatex"
-  "SUPPLEMENTAL_METHODS.tex" 1767974516.84318 15371 21e563bf517e2f8269157d0d14935051 ""
+  "SUPPLEMENTAL_METHODS.aux" 1767983869.03801 3427 b0d32768b03509ba017a9b4fe179c676 "pdflatex"
+  "SUPPLEMENTAL_METHODS.out" 1767983869.03801 486 9d66875175c6e9056f2ce203c9a4e533 "pdflatex"
+  "SUPPLEMENTAL_METHODS.tex" 1767983868.95801 13892 8a9e7ee188986b5fcce89a55ee399074 ""
   "loss_train_eval_geneformer_developmental_10milion_quality1.png" 1767973797.65609 72829 8e6740ee11f565ecccc15420a1bca56f ""
   (generated)
   "SUPPLEMENTAL_METHODS.aux"
