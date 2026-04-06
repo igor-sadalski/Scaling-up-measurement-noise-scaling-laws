@@ -92,6 +92,9 @@ def plot_noise_scaling_fits(
                     y_info = np.zeros_like(u_fit)
             y_info_lower = -y_info
 
+            # Calculate average uncertainty error size
+            avg_uncertainty_error = np.mean(np.abs(y_info))
+
             return {
                 "fit_success": True,
                 "result": result,
@@ -101,6 +104,7 @@ def plot_noise_scaling_fits(
                 "I_max_err": I_max_err,
                 "y_info": y_info,
                 "y_info_lower": y_info_lower,
+                "avg_uncertainty_error": avg_uncertainty_error,
             }
         except Exception as e:
             return {
@@ -112,6 +116,7 @@ def plot_noise_scaling_fits(
                 "I_max_err": np.nan,
                 "y_info": np.nan,
                 "y_info_lower": np.nan,
+                "avg_uncertainty_error": np.nan,
             }
 
     # Get unique combinations of method, metric, and dataset for plotting
@@ -166,6 +171,7 @@ def plot_noise_scaling_fits(
                         "fitted_I_max": round(fit_results["I_max"], 3),
                         "u_bar_error": round(fit_results["u_bar_err"], 3),
                         "I_max_error": round(fit_results["I_max_err"], 3),
+                        "avg_uncertainty_error": round(fit_results["avg_uncertainty_error"], 3),
                     }
                 )
             else:
@@ -180,6 +186,7 @@ def plot_noise_scaling_fits(
                         "fitted_I_max": np.nan,
                         "u_bar_error": np.nan,
                         "I_max_error": np.nan,
+                        "avg_uncertainty_error": np.nan,
                     }
                 )
 

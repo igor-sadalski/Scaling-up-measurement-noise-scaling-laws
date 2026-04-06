@@ -1,0 +1,198 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage[numbers]{natbib}
+\usepackage{placeins}
+\usepackage{graphicx}
+
+\title{Supplemental Methods Results Generation}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Geneformer}
+
+Geneformer was implemented using the original repository\cite{theodoris2023geneformer} as a BERT-based transformer (BertForMaskedLM). Training was performed using the HuggingFace Trainer API with length-grouped batching to improve efficiency by grouping cells with similar numbers of expressed genes. To ensure consistent training across diverse dataset sizes, epochs scale dynamically as $\max(1, \lfloor 10 \times (10,000,000 / \text{dataset\_size}) \rfloor)$, ensuring smaller datasets receive proportionally more training while larger datasets train for fewer epochs, thus maintaining a constant effective training budget. Early stopping prevents overfitting by monitoring validation loss, and the model uses masked language modeling with 15\% token masking. 
+
+Parameter count scales linearly with vocabulary size (number of genes) due to the embedding layer and language model head. Measured parameter counts across datasets range from 1.9M to 13.5M depending on the number of genes in each dataset (Table~\ref{tab:parameter_counts}). Complete hyperparameters are provided in Table~\ref{tab:geneformer_params}.
+
+We use a reduced-parameter Geneformer architecture compared to published single-cell transformer models due to smaller training datasets and the large number of studies required. Larger models such as Geneformer-V1\cite{theodoris2023geneformer} (pretrained on $\sim$30M cells), Geneformer-V2-104M\cite{chen2024geneformer} (pretrained on $\sim$95M cells), Tahoe-X1\cite{gandhi2025tahoe} ($\sim$70M parameters, pretrained on $\sim$271M cells), scGPT\cite{cui2023scgpt} ($\sim$100M parameters, pretrained on $\sim$33M cells), TranscriptFormer\cite{pearce2025transcriptformer} (368--542M parameters, pretrained on 57--112M cells), and STATE\cite{adduri2025state} ($\sim$600M parameters) were trained with massive compute budgets and extensive pretraining data, making such large-scale pretraining infeasible for systematic benchmarking.
+
+Figure~\ref{fig:geneformer_training_loss} shows the training and validation loss curves for the Geneformer model trained on the developmental task using the full dataset of 10 million cells at full quality level. The model demonstrates stable convergence with both the training and validation losses decreasing monotonically, and the validation loss closely tracks the training loss, indicating good generalization without overfitting. Early stopping was triggered based on validation loss monitoring, preventing overfitting while allowing sufficient training.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{loss_train_eval_geneformer_developmental_10milion_quality1.png}
+\caption{Training and validation loss curves for Geneformer trained on the developmental task with 10 million cells at quality level 1. The model shows stable convergence with both losses decreasing consistently throughout training.}
+\label{fig:geneformer_training_loss}
+\end{figure}
+
+\begin{table}[!htbp]
+\centering
+\caption{Hyperparameters and Implementation Details for Geneformer}
+\label{tab:geneformer_params}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+\multicolumn{2}{l}{\textit{Model Architecture}} \\
+Number of layers & 3 \\
+Hidden dimension & 256 \\
+Attention heads & 4 \\
+Intermediate size & 512 \\
+Max sequence length & 512 tokens \\
+Activation function & ReLU \\
+Attention dropout & 0.02 \\
+Hidden dropout & 0.02 \\
+Initializer range & 0.02 \\
+Layer norm epsilon & $1 \times 10^{-12}$ \\
+\midrule
+\multicolumn{2}{l}{\textit{Training Hyperparameters}} \\
+Learning rate & $1 \times 10^{-3}$ \\
+Optimizer & AdamW \\
+Weight decay & 0.001 \\
+Train batch size (per device) & 64 \\
+Eval batch size (per device) & 100 \\
+\midrule
+\multicolumn{2}{l}{\textit{Learning Rate Schedule}} \\
+LR scheduler type & Linear \\
+Warmup steps & 5,000 \\
+\midrule
+\multicolumn{2}{l}{\textit{Training Configuration}} \\
+Evaluation strategy & Steps \\
+Evaluation steps & 1,000 \\
+Max epochs & Dynamic (depends on dataset size) \\
+\midrule
+\multicolumn{2}{l}{\textit{Early Stopping}} \\
+Early stopping & Based on validation loss \\
+Patience & 5 steps \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{SCVI}
+
+SCVI\cite{lopez2018scvi} was implemented using \texttt{scvi.model.SCVI} with a shallow architecture to balance expressiveness and computational efficiency. The model uses gene-specific dispersion and zero-inflated negative binomial (ZINB) likelihood to capture the over-dispersed and sparse nature of single-cell count data. Parameter count scales with input genes due to gene-specific parameters in the decoder. Measured parameter counts across datasets range from 1.3M to 116.8M depending on the number of genes in each dataset (Table~\ref{tab:parameter_counts}). Complete hyperparameters are provided in Table~\ref{tab:scvi_params}.
+
+Training employs a conservative learning rate schedule with minimal weight decay to allow stable optimization of the generative model. Similar to Geneformer, epochs scale dynamically to maintain consistent training across dataset sizes, though with a lower scaling factor reflecting the faster convergence of variational autoencoders. KL divergence warmup is applied to gradually introduce the regularization term, preventing the model from collapsing to the prior early in training. SCVI operates on raw count data without preprocessing. The encoder outputs both mean and variance parameters of the approximate posterior distribution over latent variables, but embeddings are extracted as the posterior mean to provide deterministic 16-dimensional representations, following standard practice in the field.
+
+\begin{table}[!htbp]
+\centering
+\caption{Hyperparameters and Implementation Details for SCVI}
+\label{tab:scvi_params}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+\multicolumn{2}{l}{\textit{Model Architecture}} \\
+Hidden size & 512 \\
+Latent dimension & 16 \\
+Number of hidden layers & 1 \\
+Dropout rate & 0.1 \\
+Dispersion & Gene-specific \\
+Gene likelihood & Zero-inflated negative binomial (ZINB) \\
+Latent distribution & Normal \\
+\midrule
+\multicolumn{2}{l}{\textit{Training Hyperparameters}} \\
+Learning rate & $1 \times 10^{-3}$ \\
+Optimizer & Adam \\
+Weight decay & $1 \times 10^{-6}$ \\
+Adam epsilon & 0.01 \\
+Batch size & 512 \\
+\midrule
+\multicolumn{2}{l}{\textit{Learning Rate Schedule}} \\
+LR scheduler & Reduce on plateau \\
+LR scheduler metric & Validation ELBO \\
+Minimum LR & $1 \times 10^{-6}$ \\
+\midrule
+\multicolumn{2}{l}{\textit{KL Annealing}} \\
+KL warmup epochs & 1 \\
+Max KL weight & 1.0 \\
+Min KL weight & 0.0 \\
+\midrule
+\multicolumn{2}{l}{\textit{Training Configuration}} \\
+Train/Val split & 80\% / 20\% \\
+Shuffle split & True \\
+Max epochs & Dynamic (depends on dataset size) \\
+\midrule
+\multicolumn{2}{l}{\textit{Early Stopping}} \\
+Early stopping & Based on validation ELBO \\
+Patience & 5 epochs \\
+Min delta & 0.01 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\caption{Parameter counts for SCVI and Geneformer models across different datasets}
+\label{tab:parameter_counts}
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Dataset} & \textbf{SCVI (M)} & \textbf{Geneformer (M)} \\
+\midrule
+Larry & 64.9 & 8.3 \\
+MERFISH & 1.3 & 1.9 \\
+PBMC & 53.2 & 7.1 \\
+Shendure & 116.8 & 13.5 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{PCA}
+
+PCA was implemented using \texttt{sklearn.decomposition.TruncatedSVD}\cite{pedregosa2011scikit} with 16 components. Preprocessing includes total count normalization to 10,000 counts per cell, $\log(x + 1)$ transformation, and selection of the top 750 highly variable genes. The method computes a linear transformation matrix of size $750 \times 16$.
+
+\section{Random Projection}
+
+Random Projection was implemented using \texttt{sklearn.random\_projection.GaussianRandomProjection}\cite{pedregosa2011scikit} with 16 components and random state 42. The method operates on raw counts without normalization and provides 16-dimensional embeddings.
+
+\section{Computational Scale}
+
+This study required the execution of approximately 4,000 training runs across tasks, dataset sizes, data qualities, algorithms, and different random seeds. Most models required GPU access for training, embedding extraction, or computation of mutual information. To manage this scale, we developed a custom scheduling system that dynamically allocates GPUs based on real-time memory availability, maintains hundreds of concurrent worker processes, and executes each training run as an isolated subprocess. The system monitors GPU memory usage and assigns jobs. All models and embeddings were saved for reproducibility. To enable processing of datasets containing up to 10 million cells, we developed a custom H5AD reader that handles sparse CSR matrices by directly accessing HDF5 indptr, indices, and data arrays, reconstructing sparse matrices only for requested row ranges. This enables efficient chunked reading with a low memory footprint.
+
+\FloatBarrier
+
+\begin{thebibliography}{99}
+
+\bibitem{theodoris2023geneformer}
+Theodoris, C. V., Xiao, L., Chopra, A., Chaffin, M. D., Al Sayed, Z. R., Hill, M. C., Mantineo, H., Brydon, E., Zeng, Z., Liu, X. S., \& Ellinor, P. T. (2023). Transfer learning enables predictions in network biology. \textit{Nature}, 618(7965), 616--624.
+
+\bibitem{chen2024geneformer}
+Chen, H., Venkatesh, M. S., Gomez Ortega, J., Mahesh, S. V., Nandi, T., Madduri, R., Pelka, K., \& Theodoris, C. V. (2024). Quantized multi-task learning for context-specific representations of gene network dynamics. \textit{bioRxiv}. \url{https://www.biorxiv.org/content/10.1101/2024.08.16.608180v1}
+
+\bibitem{gandhi2025tahoe}
+Gandhi, S., Javadi, F., Svensson, V., Khan, U., Jones, M. G., Yu, J., Merico, D., Goodarzi, H., \& Alidoust, N. (2025). Tahoe-x1: Scaling Perturbation-Trained Single-Cell Foundation Models to 3 Billion Parameters. \textit{bioRxiv}. \url{https://www.biorxiv.org/content/10.1101/2025.10.23.683759v1}
+
+\bibitem{cui2023scgpt}
+Cui, H., Wang, C., Maan, H., Pang, K., Luo, F., \& Wang, B. (2024). scGPT: toward building a foundation model for single-cell multi-omics using generative AI. \textit{Nature Methods}, 21, 1470--1480.
+
+\bibitem{pearce2025transcriptformer}
+Pearce, J. D., Simmonds, S. E., Mahmoudabadi, G., Krishnan, L., Palla, G., Istrate, A.-M., Tarashansky, A., Nelson, B., Valenzuela, O., Li, D., Quake, S. R., \& Karaletsos, T. (2025). A Cross-Species Generative Cell Atlas Across 1.5 Billion Years of Evolution: The TranscriptFormer Single-cell Model. \textit{bioRxiv}. \url{https://www.biorxiv.org/content/10.1101/2025.04.25.650731v2}
+
+\bibitem{lopez2018scvi}
+Lopez, R., Regier, J., Cole, M. B., Jordan, M. I., \& Yosef, N. (2018). Deep generative modeling for single-cell transcriptomics. \textit{Nature Methods}, 15(12), 1053--1058.
+
+\bibitem{pedregosa2011scikit}
+Pedregosa, F., Varoquaux, G., Gramfort, A., Michel, V., Thirion, B., Grisel, O., Blondel, M., Prettenhofer, P., Weiss, R., Dubourg, V., Vanderplas, J., Passos, A., Cournapeau, D., Brucher, M., Perrot, M., \& Duchesnay, E. (2011). Scikit-learn: Machine Learning in Python. \textit{Journal of Machine Learning Research}, 12, 2825--2830.
+
+\bibitem{adduri2025state}
+Adduri, A. K., Gautam, D., Bevilacqua, B., Imran, A., Shah, R., Naghipourfar, M., Teyssier, N., Ilango, R., Nagaraj, S., Dong, M., Ricci-Tam, C., Carpenter, C., Subramanyam, V., Winters, A., Tirukkovular, S., Sullivan, J., Plosky, B. S., Eraslan, B., Youngblut, N. D., Leskovec, J., Gilbert, L. A., Konermann, S., Hsu, P. D., Dobin, A., Burke, D. P., Goodarzi, H., \& Roohani, Y. H. (2025). Predicting cellular responses to perturbation across diverse contexts with State. \textit{bioRxiv}. \url{https://www.biorxiv.org/content/10.1101/2025.06.26.661135v2}
+
+\end{thebibliography}
+
+\end{document}

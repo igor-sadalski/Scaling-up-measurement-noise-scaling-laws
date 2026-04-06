@@ -41,9 +41,14 @@ class BaseAlgorithm(ABC):
         self.embeddings_path: Path = self.save_folder_path / self.model_name / "embeddings.csv"
 
         self.device: int = device
-        os.environ["CUDA_VISIBLE_DEVICES"] = str(self.device)
+        # Set CUDA_VISIBLE_DEVICES so that the specified device becomes visible as device 0
+        # This ensures all CUDA operations use the correct GPU
         if torch.cuda.is_available():
-            torch.cuda.set_device(0)
+            os.environ["CUDA_VISIBLE_DEVICES"] = str(self.device)
+            torch.cuda.set_device(0)  # After setting CUDA_VISIBLE_DEVICES, device becomes 0
+            print(f"Using GPU {self.device} (visible as cuda:0)")
+        else:
+            print(f"CUDA not available, using CPU")
 
         self.vae: scvi.model.SCVI | None = None
         self.signal_columns: list[str] = ["celltype.l3"]
@@ -67,7 +72,18 @@ class BaseAlgorithm(ABC):
     def embed(self, **kwargs) -> np.ndarray:
         raise NotImplementedError("Subclasses must implement this method")
 
-    def mutual_information(self, max_epochs: int = 300, device: str = "cuda:0") -> dict:
+    def mutual_information(self, max_epochs: int = 300, device: str | None = None) -> dict:
+        # Hard code to use GPU - exit if not available
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                f"GPU is required for LMI computation but CUDA is not available. "
+                f"Requested device: {self.device}"
+            )
+        
+        # Use the device from self.device (which is set via CUDA_VISIBLE_DEVICES)
+        # After CUDA_VISIBLE_DEVICES is set, the device is always visible as cuda:0
+        device = "cuda:0"  # After CUDA_VISIBLE_DEVICES, this is the correct device
+        print(f"Using GPU for LMI computation (device {self.device} visible as {device})")
 
         mi_results = {}
         quality_signal_path = self.base_dir.parent.parent / "test" / self.quality / "signals"
@@ -145,6 +161,10 @@ class BaseAlgorithm(ABC):
                 signal_data: np.ndarray = pd.read_csv(signal_file).values
                 Y: np.ndarray = signal_data
 
+            # Ensure we're using the correct GPU device
+            if torch.cuda.is_available():
+                torch.cuda.set_device(0)  # After CUDA_VISIBLE_DEVICES, device 0 is the correct GPU
+            
             pmi, lmi_embeddings, model = lmi.estimate(
                 X,
                 Y,

@@ -51,10 +51,14 @@ def fit_cell_number_scaling_model(cell_values, mi_values, method, initial_N0, in
             except Exception:
                 y_cell_upper = np.zeros_like(cell_values)
 
+        # Calculate average uncertainty error size
+        avg_uncertainty_error = np.mean(np.abs(y_cell_upper))
+
         return {
             **fit_params,
             **fit_errors,
             "mean_residual": np.mean(np.abs(result.residual)),
+            "avg_uncertainty_error": avg_uncertainty_error,
             "fit_success": True,
             "result": result,
             "y_cell_upper": y_cell_upper,
@@ -65,7 +69,7 @@ def fit_cell_number_scaling_model(cell_values, mi_values, method, initial_N0, in
         return {
             "N0": np.nan, "s": np.nan, "I_inf": np.nan,
             "N0_err": np.nan, "s_err": np.nan, "I_inf_err": np.nan,
-            "mean_residual": np.nan, "fit_success": False,
+            "mean_residual": np.nan, "avg_uncertainty_error": np.nan, "fit_success": False,
             "result": None, "y_cell_upper": np.nan, "y_cell_lower": np.nan,
         }
 
@@ -162,6 +166,7 @@ def plot_cell_scaling_fits(df, initial_N0=10**4, initial_s=1.0, initial_I_inf=2.
             "N0": fit_results["N0"], "s": fit_results["s"], "I_inf": fit_results["I_inf"],
             "N0_error": fit_results["N0_err"], "s_error": fit_results["s_err"],
             "I_inf_error": fit_results["I_inf_err"], "mean_residual": fit_results["mean_residual"],
+            "avg_uncertainty_error": fit_results["avg_uncertainty_error"],
             "result": fit_results["result"],
         })
 
@@ -237,7 +242,7 @@ def plot_cell_scaling_fits(df, initial_N0=10**4, initial_s=1.0, initial_I_inf=2.
     if save_plots and save_uncertainty:
         csv_filename = _create_filename("cell_scaling", initial_N0, initial_s, initial_I_inf, "csv")
         csv_filepath = os.path.join(output_dir, csv_filename)
-        numerical_cols = ["N0", "s", "I_inf", "N0_error", "s_error", "I_inf_error", "mean_residual"]
+        numerical_cols = ["N0", "s", "I_inf", "N0_error", "s_error", "I_inf_error", "mean_residual", "avg_uncertainty_error"]
         results_df[numerical_cols] = results_df[numerical_cols].round(3)
         results_df.to_csv(csv_filepath, index=False)
         print(f"Results saved to: {csv_filepath}")
@@ -319,7 +324,7 @@ if __name__ == "__main__":
 
     print("\nGenerating 50 test hyperparameter combinations...")
     hyperparameter_combinations = generate_hyperparameter_combinations(
-        n_combinations=100, N0_range=(1000, 10**7), s_range=(0.1, 10.0), I_inf_range=(0.5, 10.0)
+        n_combinations=100, N0_range=(10, 10**7), s_range=(0.1, 10.0), I_inf_range=(0.5, 10.0)
     )
 
     print("Hyperparameter combinations:")

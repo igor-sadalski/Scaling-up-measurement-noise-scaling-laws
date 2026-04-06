@@ -175,7 +175,10 @@ class Geneformer(BaseAlgorithm):
         )
 
         if torch.cuda.is_available() and self.model is not None:
+            # After CUDA_VISIBLE_DEVICES is set in BaseAlgorithm.__init__,
+            # the specified device is visible as cuda:0
             self.model = self.model.to("cuda:0")
+            print(f"Geneformer model moved to GPU (device {self.device} visible as cuda:0)")
 
         if self.model is not None:
             self.model = self.model.train()
@@ -195,7 +198,14 @@ class Geneformer(BaseAlgorithm):
         wandb.finish()
 
     def embed(self, inference_batch_size: int | None = 50) -> np.ndarray:
-
+        # Ensure GPU is available and being used
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                f"GPU is required for Geneformer embedding but CUDA is not available. "
+                f"Requested device: {self.device}"
+            )
+        
+        print(f"Geneformer using GPU (device {self.device} visible as cuda:0) for embedding extraction")
         self.geneformer_test_path = self.test_data_path / "tokenized.dataset"
 
         if self.dataset_name.lower() == "larry":
