@@ -16,3 +16,6 @@ amd_setup.sh
 S1R1_cxg.csv
 S1R1_meta.csv
 outputs/
+analysis/2026-04-08_veryfing_data_correctness/wandb
+.vscode
+scaling_laws/wandb
