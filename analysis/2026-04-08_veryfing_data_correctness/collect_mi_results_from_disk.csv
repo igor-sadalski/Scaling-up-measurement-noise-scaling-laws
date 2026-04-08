@@ -3884,6 +3884,7 @@ shendure,774263,0.0073875,RandomProjection,author_day,42,0.02293
 shendure,774263,0.0136438,Geneformer,author_day,42,0.78944
 shendure,774263,0.0136438,PCA,author_day,42,0.2036
 shendure,774263,0.0136438,RandomProjection,author_day,42,0.03687
+shendure,774263,0.0136438,SCVI,author_day,42,0.85613
 shendure,774263,0.0251984,PCA,author_day,42,0.24185
 shendure,774263,0.0251984,RandomProjection,author_day,42,0.04601
 shendure,774263,0.0465384,Geneformer,author_day,42,1.39303
