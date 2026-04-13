@@ -127,6 +127,27 @@ class PrepareData:
 
         adata.write_h5ad(self.preprocessed / "preprocessed.h5ad")
 
+    def prepare_for_state(self, profile_name: str, split: str = "train") -> Path:
+        """Create state_data/ directory and write a CSV manifest for this split.
+
+        Args:
+            profile_name: The profile name used by ``state emb preprocess``.
+            split: One of 'train', 'val', or 'test'.
+
+        Returns:
+            Path to the written CSV manifest.
+        """
+        state_data_dir = self.preprocessed / "state_data"
+        state_data_dir.mkdir(parents=True, exist_ok=True)
+
+        h5ad_path = self.preprocessed / "preprocessed.h5ad"
+        csv_path = state_data_dir / f"{split}.csv"
+        csv_path.write_text(
+            f"species,path,names\nhuman,{h5ad_path},{profile_name}_{split}\n"
+        )
+        print(f"  State {split} manifest: {csv_path}")
+        return csv_path
+
     def median_files(self, sizes: list[int]):
 
         partition_files = [self.preprocessed.parent.parent.parent / "raw" / "raw.h5ad"]
@@ -428,6 +449,10 @@ class ExperimentJobIterator:
             max_epochs = max(1, int(1 * (10_000_000 / size)))
             print(f"Max epochs for {algo} with {size} cells: {max_epochs}")
             return {"max_epochs": max_epochs, "early_stopping_patience": 3}
+        elif algo == "State":
+            max_epochs = max(1, int(10 * (10_000_000 / size)))
+            print(f"Max epochs for {algo} with {size} cells: {max_epochs}")
+            return {"max_epochs": max_epochs, "early_stopping_patience": 3}
         else:
             raise ValueError(f"Algorithm {algo} not supported")
 
@@ -445,7 +470,7 @@ class ExperimentJobIterator:
 
         device = next(self.gpu_generators[algo])
 
-        if algo == "Geneformer" or algo == "SCVI":
+        if algo in ("Geneformer", "SCVI", "State"):
             config = self._get_config_for_size(algo, size)
 
             job_args = {
@@ -640,6 +665,14 @@ class Experiments:
                 10_000_000: {"max_epochs": 1, "early_stopping_patience": 3},
             },
             "SCVI": {
+                100: {"max_epochs": 100_000, "early_stopping_patience": 3},
+                1_000: {"max_epochs": 10_000, "early_stopping_patience": 3},
+                10_000: {"max_epochs": 1_000, "early_stopping_patience": 3},
+                100_000: {"max_epochs": 100, "early_stopping_patience": 3},
+                1_000_000: {"max_epochs": 10, "early_stopping_patience": 3},
+                10_000_000: {"max_epochs": 10, "early_stopping_patience": 3},
+            },
+            "State": {
                 100: {"max_epochs": 100_000, "early_stopping_patience": 3},
                 1_000: {"max_epochs": 10_000, "early_stopping_patience": 3},
                 10_000: {"max_epochs": 1_000, "early_stopping_patience": 3},
@@ -910,6 +943,100 @@ class Experiments:
                         model_input_size=512, signal_columns=self.signal_columns, chunk_size=chunk_size, nproc=nproc
                     )
 
+    def prepare_state_data(self):
+        """Run ``state emb preprocess`` for every dataset / size / quality.
+
+        For each (dataset, size, quality) combination this method:
+        1. Writes CSV manifests for train, validation, and test splits
+           into ``{size}/{quality}/preprocessed/state_data/``.
+        2. Copies the default STATE config.
+        3. Calls ``state emb preprocess`` which creates one-hot gene
+           embeddings, per-dataset mappings, and valid-gene masks — all
+           saved into the train split's ``state_data/`` directory.
+
+        After this, ``State.train()`` can skip preprocessing and go
+        straight to ``state emb fit``.
+        """
+        state_python = Path("/home/igor/miniconda3/envs/state/bin/python")
+        state_package_dir = Path("/home/igor/noise_scaling/modeling/STATE/state")
+        state_defaults_yaml = state_package_dir / "src" / "state" / "configs" / "state-defaults.yaml"
+
+        for dataset in self.datasets:
+            for size in self.sizes:
+                for quality in self.qualities:
+                    print(f"\n=== Preparing State data for {dataset} / {size} / {quality} ===")
+
+                    profile_name = f"scaling_{dataset}_{size}_{quality}".replace(".", "_")
+
+                    # --- per-split PrepareData to create state_data/ + CSV ---
+                    train_base = self.path_to_data_dir / dataset / f"{size}" / f"{quality}"
+                    val_base = self.path_to_data_dir / dataset / "validation" / f"{quality}"
+                    test_base = self.path_to_data_dir / dataset / "test" / f"{quality}"
+
+                    pd_train = PrepareData(base_dir=str(train_base))
+                    pd_val = PrepareData(base_dir=str(val_base))
+                    pd_test = PrepareData(base_dir=str(test_base))
+
+                    train_csv = pd_train.prepare_for_state(profile_name, split="train")
+                    val_csv_path = pd_val.prepare_for_state(profile_name, split="val")
+                    pd_test.prepare_for_state(profile_name, split="test")
+
+                    # Combined CSV includes val + test so gene vocabulary
+                    # covers all splits (needed at inference time).
+                    profile_dir = pd_train.preprocessed / "state_data"
+                    combined_val_csv = profile_dir / "val_combined.csv"
+                    val_h5ad = pd_val.preprocessed / "preprocessed.h5ad"
+                    test_h5ad = pd_test.preprocessed / "preprocessed.h5ad"
+                    combined_val_csv.write_text(
+                        f"species,path,names\n"
+                        f"human,{val_h5ad},{profile_name}_val\n"
+                        f"human,{test_h5ad},{profile_name}_test\n"
+                    )
+
+                    # Val-only CSV — used for training validation / early stopping
+                    # to avoid data leakage from test set.
+                    val_only_csv = profile_dir / "val_only.csv"
+                    val_only_csv.write_text(
+                        f"species,path,names\n"
+                        f"human,{val_h5ad},{profile_name}_val\n"
+                    )
+
+                    # --- copy default config ---
+                    config_path = profile_dir / "state_config.yaml"
+                    shutil.copy(state_defaults_yaml, config_path)
+
+                    # --- state emb preprocess ---
+                    # Use combined CSV for gene discovery so all genes get embeddings
+                    cmd = [
+                        str(state_python), "-m", "state", "emb", "preprocess",
+                        "--profile-name", profile_name,
+                        "--train-csv", str(train_csv),
+                        "--val-csv", str(combined_val_csv),
+                        "--output-dir", str(profile_dir),
+                        "--config-file", str(config_path),
+                    ]
+                    print(f"  Running: {' '.join(cmd)}")
+                    subprocess.run(cmd, cwd=str(state_package_dir), check=True)
+
+                    # Patch config: point val at val-only CSV so early
+                    # stopping during training does NOT see test data.
+                    from omegaconf import OmegaConf
+
+                    cfg = OmegaConf.load(str(config_path))
+                    preprocessed_val_csv = Path(cfg.dataset[profile_name].val)
+                    val_only_out = profile_dir / f"val_only_{profile_name}.csv"
+                    df_val = pd.read_csv(str(preprocessed_val_csv))
+                    df_val = df_val[df_val["names"].str.endswith("_val")]
+                    df_val.to_csv(str(val_only_out), index=False)
+                    cfg.dataset[profile_name].val = str(val_only_out)
+                    cfg.dataset[profile_name].num_datasets = len(
+                        pd.read_csv(str(cfg.dataset[profile_name].train))
+                    ) + len(df_val)
+                    with open(str(config_path), "w") as f:
+                        OmegaConf.save(cfg, f)
+                    print(f"  Config patched: val uses val-only (no test leakage)")
+                    print(f"  Profile saved to {profile_dir}")
+
     def _record_failed_job(self, job_args: dict, error: str, file_path: str = "failed_jobs.txt"):
         """Record failed job configuration to a file with timestamp."""
         from datetime import datetime
@@ -931,7 +1058,7 @@ class Experiments:
 
         for dataset, size, quality, algo in experiment_iterator:
             try:
-                if algo == "Geneformer" or algo == "SCVI":
+                if algo in ("Geneformer", "SCVI", "State"):
                     self.single_job(dataset, size, quality, algo, **self.configs[algo][size], device=self.device)
                 else:
                     self.single_job(dataset, size, quality, algo)
@@ -1123,20 +1250,23 @@ class Experiments:
         if reembed_checkpoint:
             model_name = reembed_checkpoint.split("/")[-1]
         else:
-            model_name = None
+            model_name = "model"
 
         if algo == "Geneformer":
-            method = Geneformer(
+            gf_kwargs = dict(
                 base_dir=base_dir,
                 lengths_path=base_dir / "preprocessed" / "lengths.pkl",
                 signal_columns=self.signal_columns,
                 device=device,
-                max_epochs=max_epochs,
-                early_stopping_patience=early_stopping_patience,
                 dataset_name=self.datasets[0],
                 seed=self.seed,
                 model_name=model_name,
             )
+            if max_epochs is not None:
+                gf_kwargs["max_epochs"] = max_epochs
+            if early_stopping_patience is not None:
+                gf_kwargs["early_stopping_patience"] = early_stopping_patience
+            method = Geneformer(**gf_kwargs)
         elif algo == "RandomProjection":
             method = RandomProjection(
                 base_dir=base_dir,
@@ -1144,15 +1274,18 @@ class Experiments:
                 seed=self.seed,
             )
         elif algo == "SCVI":
-            method = SCVI(
+            scvi_kwargs = dict(
                 base_dir=base_dir,
                 signal_columns=self.signal_columns,
                 device=device,
-                max_epochs=max_epochs,
-                early_stopping_patience=early_stopping_patience,
                 dataset_name=self.datasets[0],
                 seed=self.seed,
             )
+            if max_epochs is not None:
+                scvi_kwargs["max_epochs"] = max_epochs
+            if early_stopping_patience is not None:
+                scvi_kwargs["early_stopping_patience"] = early_stopping_patience
+            method = SCVI(**scvi_kwargs)
         elif algo == "PCA":
             method = PCA(
                 base_dir=base_dir,
@@ -1160,6 +1293,18 @@ class Experiments:
                 device=device,
                 seed=self.seed,
             )
+        elif algo == "State":
+            state_kwargs = dict(
+                base_dir=base_dir,
+                device=device,
+                dataset_name=self.datasets[0],
+                seed=self.seed,
+            )
+            if max_epochs is not None:
+                state_kwargs["max_epochs"] = max_epochs
+            if early_stopping_patience is not None:
+                state_kwargs["early_stopping_patience"] = early_stopping_patience
+            method = State(**state_kwargs)
 
         print(
             f"Running {algo} for {dataset} with {size} cells and {quality} quality on device {device} (using max_epochs={max_epochs} and early_stopping_patience={early_stopping_patience})"
@@ -1519,6 +1664,10 @@ class JobProcessor:
         try:
             subprocess.run(self.cmd, check=True)
         except subprocess.CalledProcessError as e:
+            print(f"Error running command: {self.cmd}")
+            print(f"Error: {e}")
+            print(f"Error type: {type(e)}")
+            print(f"Error traceback: {traceback.format_exc()}")
             cmd_args = {}
             for i, arg in enumerate(self.cmd):
                 if arg == "--dataset":
