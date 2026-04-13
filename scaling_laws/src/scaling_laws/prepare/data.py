@@ -1028,12 +1028,17 @@ class Experiments:
                     df_val = pd.read_csv(str(preprocessed_val_csv))
                     df_val = df_val[df_val["names"].str.endswith("_val")]
                     df_val.to_csv(str(val_only_out), index=False)
+                    assert val_only_out.exists(), f"val_only CSV not written: {val_only_out}"
                     cfg.dataset[profile_name].val = str(val_only_out)
                     cfg.dataset[profile_name].num_datasets = len(
                         pd.read_csv(str(cfg.dataset[profile_name].train))
                     ) + len(df_val)
-                    with open(str(config_path), "w") as f:
-                        OmegaConf.save(cfg, f)
+                    OmegaConf.save(cfg, str(config_path))
+                    # Verify the config was saved correctly
+                    cfg_verify = OmegaConf.load(str(config_path))
+                    assert str(val_only_out) in cfg_verify.dataset[profile_name].val, (
+                        f"Config patching failed: val still points to {cfg_verify.dataset[profile_name].val}"
+                    )
                     print(f"  Config patched: val uses val-only (no test leakage)")
                     print(f"  Profile saved to {profile_dir}")
 

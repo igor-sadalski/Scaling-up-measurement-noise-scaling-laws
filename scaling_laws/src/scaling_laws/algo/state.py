@@ -97,6 +97,8 @@ class State(BaseAlgorithm):
         adata = ad.read_h5ad(train_h5ad, backed="r")
         num_cells = int(adata.shape[0])
         batches_per_epoch = max(1, num_cells // 128)
+        # Match Geneformer: validate & checkpoint every 1000 steps,
+        # capped at batches_per_epoch (Lightning requires val_check_interval <= training batches)
         val_interval = min(1000, batches_per_epoch)
         print(f"  Data: {num_cells} cells, ~{batches_per_epoch} batches/epoch, val every {val_interval} steps")
 
@@ -125,8 +127,8 @@ class State(BaseAlgorithm):
             "model.dataset_correction=false",
             "model.dropout=0.1",
             # Optimizer
-            "optimizer.max_lr=1.0e-05",
-            "optimizer.gradient_accumulation_steps=8",
+            "optimizer.max_lr=5.0e-04",
+            "optimizer.gradient_accumulation_steps=1",
             "optimizer.weight_decay=0.01",
             # Experiment
             f"experiment.name=state_{self.profile_name}",
@@ -135,7 +137,7 @@ class State(BaseAlgorithm):
             "experiment.num_nodes=1",
             f"experiment.port={self._get_unique_port()}",
             f"experiment.val_check_interval={val_interval}",
-            f"experiment.limit_val_batches={min(50, batches_per_epoch)}",
+            "experiment.limit_val_batches=50",
             # Checkpoint: keep only the single best model by val_loss
             f"experiment.checkpoint.path={self.checkpoint_dir}",
             f"experiment.checkpoint.every_n_train_steps={val_interval}",
@@ -160,6 +162,10 @@ class State(BaseAlgorithm):
     def _find_best_checkpoint(self) -> str:
         """Find the best checkpoint (single .ckpt saved by save_top_k=1)."""
         ckpts = sorted(glob.glob(str(self.checkpoint_dir / "**" / "*.ckpt"), recursive=True))
+        # Prefer the best checkpoint saved by ModelCheckpoint, skip last.ckpt
+        best_ckpts = [c for c in ckpts if not c.endswith("last.ckpt")]
+        if best_ckpts:
+            return best_ckpts[-1]
         if ckpts:
             return ckpts[-1]
 
