@@ -101,6 +101,44 @@ class EmbeddingResult:
     embedding_dim: int
 
 
+@dataclass
+class EmbeddingSignalResult:
+    """A matched (embedding, signal) pair for MI recomputation.
+
+    Rows in ``embedding`` and ``signal_data`` are aligned: row *i* in the
+    embedding corresponds to row *i* in the signal DataFrame.
+
+    Attributes
+    ----------
+    dataset : str
+        Dataset name.
+    num_cells : int
+        Training subset size.
+    quality : float
+        Noise quality level (1.0 = no noise).
+    algorithm : str
+        Embedding algorithm name.
+    signal : str
+        Biological signal column name (e.g. ``'ng_idx'``, ``'celltype.l3'``).
+    embedding : pd.DataFrame
+        Embedding matrix (cells x dimensions).
+    embedding_dim : int
+        Number of embedding dimensions.
+    signal_data : pd.DataFrame
+        Signal data loaded from the test signal CSV, row-aligned with
+        ``embedding``.
+    """
+
+    dataset: str
+    num_cells: int
+    quality: float
+    algorithm: str
+    signal: str
+    embedding: pd.DataFrame
+    embedding_dim: int
+    signal_data: pd.DataFrame
+
+
 class S3Retriever:
     """Retrieve artifacts from the Measurement Noise Scaling Laws dataset.
 
@@ -169,6 +207,17 @@ class S3Retriever:
     def _model_dir(self, dataset: str, num_cells: int, quality: float, algorithm: str,
                    model_name: str = "model") -> str:
         return f"{self._results_dir(dataset, num_cells, quality, algorithm)}/{model_name}"
+
+    def _signal_path(self, dataset: str, quality: float, signal: str, algorithm: str) -> str:
+        """Return the relative path to a test signal CSV.
+
+        Geneformer uses its own signal file variant with a ``_geneformer``
+        suffix.  For other algorithms the standard file is used.
+        """
+        q = str(quality)
+        if algorithm == "Geneformer":
+            return f"{dataset}/test/{q}/signals/Y_{signal}_{q}_geneformer.csv"
+        return f"{dataset}/test/{q}/signals/Y_{signal}_{q}.csv"
 
     def _mi_dir_candidates(self, algorithm: str, quality: float, signal: str, seed: int) -> list[str]:
         """Return candidate MI sub-paths to try (naming conventions vary by algorithm)."""
@@ -246,6 +295,38 @@ class S3Retriever:
         import anndata
         path = self._resolve(dataset, "test", str(quality), "preprocessed", "preprocessed.h5ad")
         return anndata.read_h5ad(path)
+
+    def load_test_signal(
+        self,
+        dataset: str,
+        quality: float,
+        signal: str,
+        algorithm: str,
+    ) -> pd.DataFrame:
+        """Load the test-set signal CSV for a given (dataset, quality, signal, algorithm).
+
+        Geneformer uses its own signal file variant; all other algorithms
+        share the standard file.
+
+        Parameters
+        ----------
+        dataset : str
+            Dataset name.
+        quality : float
+            Noise quality level.
+        signal : str
+            Signal column name (e.g. ``'ng_idx'``, ``'celltype.l3'``).
+        algorithm : str
+            Embedding algorithm — determines which signal file variant to load.
+
+        Returns
+        -------
+        pd.DataFrame
+            Signal data with one row per test cell (row-aligned with the
+            embedding from :meth:`load_embeddings`).
+        """
+        path = self._resolve(self._signal_path(dataset, quality, signal, algorithm))
+        return pd.read_csv(path)
 
     def load_tokenized_dataset(self, dataset: str, num_cells: int, quality: float) -> "datasets.Dataset":
         """Load the tokenized HuggingFace dataset (used by Geneformer)."""
@@ -366,6 +447,77 @@ class S3Retriever:
                 signals=self.list_signals(ds),
                 embedding=emb,
                 embedding_dim=emb.shape[1],
+            )
+
+    def iter_embeddings_with_signals(
+        self,
+        datasets: list[str] | None = None,
+        sizes: dict[str, list[int]] | None = None,
+        qualities: dict[str, list[float]] | None = None,
+        algorithms: list[str] | None = None,
+        signals: dict[str, list[str]] | None = None,
+        model_name: str = "model",
+    ) -> Iterator[EmbeddingSignalResult]:
+        """Iterate over (embedding, signal) pairs for MI recomputation.
+
+        For each (dataset, size, quality, algorithm, signal) combination,
+        yields an :class:`EmbeddingSignalResult` containing the row-aligned
+        embedding and signal DataFrames.  Configurations whose embedding or
+        signal file is missing are silently skipped.
+
+        Parameters
+        ----------
+        datasets : list[str] or None
+            Datasets to include (default: all).
+        sizes : dict[str, list[int]] or None
+            Per-dataset sizes to include (default: all).
+        qualities : dict[str, list[float]] or None
+            Per-dataset quality levels to include (default: all).
+        algorithms : list[str] or None
+            Algorithms to include (default: all).
+        signals : dict[str, list[str]] or None
+            Per-dataset signal columns to include.  If *None*, all signals
+            for each dataset are used.
+        model_name : str
+            Model sub-directory (default ``"model"``).
+
+        Yields
+        ------
+        EmbeddingSignalResult
+            One result per successfully loaded (dataset, size, quality,
+            algorithm, signal) combination.
+        """
+        ds_list = datasets or DATASETS
+        algo_list = algorithms or ALGORITHMS
+
+        configs: list[tuple[str, int, float, str, str]] = []
+        for ds in ds_list:
+            ds_sizes = (sizes or {}).get(ds, self.list_sizes(ds))
+            ds_quals = (qualities or {}).get(ds, self.list_qualities(ds))
+            ds_signals = (signals or {}).get(ds, self.list_signals(ds))
+            for n in ds_sizes:
+                for q in ds_quals:
+                    for algo in algo_list:
+                        for sig in ds_signals:
+                            configs.append((ds, n, q, algo, sig))
+
+        pbar = tqdm(configs, desc="Loading embeddings + signals", unit="config")
+        for ds, n, q, algo, sig in pbar:
+            pbar.set_description(f"{ds} | n={n} | q={q} | {algo} | {sig}")
+            try:
+                emb = self.load_embeddings(ds, n, q, algo, model_name)
+                sig_df = self.load_test_signal(ds, q, sig, algo)
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                continue
+            yield EmbeddingSignalResult(
+                dataset=ds,
+                num_cells=n,
+                quality=q,
+                algorithm=algo,
+                signal=sig,
+                embedding=emb,
+                embedding_dim=emb.shape[1],
+                signal_data=sig_df,
             )
 
     # ------------------------------------------------------------------
