@@ -33,11 +33,29 @@ class State(BaseAlgorithm):
         early_stopping_patience: int = 5,
         dataset_name: str | None = None,
         seed: int = 42,
+        pad_length: int = 512,
+        emsize: int = 256,
+        d_hid: int = 512,
+        nhead: int = 4,
+        nlayers: int = 3,
+        output_dim: int = 256,
+        batch_size: int = 64,
+        max_lr: float = 1e-4,
+        dropout: float = 0.1,
     ):
         super().__init__(base_dir, device, model_name="model", seed=seed)
         self.max_epochs = max_epochs
         self.early_stopping_patience = early_stopping_patience
         self.dataset_name = dataset_name or "unknown"
+        self.pad_length = pad_length
+        self.emsize = emsize
+        self.d_hid = d_hid
+        self.nhead = nhead
+        self.nlayers = nlayers
+        self.output_dim = output_dim
+        self.batch_size = batch_size
+        self.max_lr = max_lr
+        self.dropout = dropout
 
         # STATE env paths
         self.state_python = Path("/home/igor/miniconda3/envs/state/bin/python")
@@ -97,9 +115,7 @@ class State(BaseAlgorithm):
 
         adata = ad.read_h5ad(train_h5ad, backed="r")
         num_cells = int(adata.shape[0])
-        batches_per_epoch = max(1, num_cells // 64)
-        # Match Geneformer: validate & checkpoint every 1000 steps,
-        # capped at batches_per_epoch (Lightning requires val_check_interval <= training batches)
+        batches_per_epoch = max(1, num_cells // self.batch_size)
         val_interval = min(1000, batches_per_epoch)
         print(f"  Data: {num_cells} cells, ~{batches_per_epoch} batches/epoch, val every {val_interval} steps")
 
@@ -114,21 +130,21 @@ class State(BaseAlgorithm):
             f"dataset.num_cells={num_cells}",
             "dataset.num_train_workers=4",
             "dataset.num_val_workers=2",
-            "dataset.pad_length=512",
-            "dataset.P=128",
-            "dataset.N=128",
-            "dataset.S=128",
-            # Model architecture (Geneformer-scale: 256 hidden, 4 heads, 3 layers; learning dynamics from STATE defaults)
-            "model.batch_size=64",
-            "model.emsize=256",
-            "model.d_hid=512",
-            "model.nhead=4",
-            "model.nlayers=3",
-            "model.output_dim=256",
+            f"dataset.pad_length={self.pad_length}",
+            f"dataset.P={self.pad_length // 4}",
+            f"dataset.N={self.pad_length // 4}",
+            f"dataset.S={self.pad_length // 4}",
+            # Model architecture
+            f"model.batch_size={self.batch_size}",
+            f"model.emsize={self.emsize}",
+            f"model.d_hid={self.d_hid}",
+            f"model.nhead={self.nhead}",
+            f"model.nlayers={self.nlayers}",
+            f"model.output_dim={self.output_dim}",
             "model.dataset_correction=false",
-            "model.dropout=0.1",
+            f"model.dropout={self.dropout}",
             # Optimizer
-            "optimizer.max_lr=1.0e-04",
+            f"optimizer.max_lr={self.max_lr}",
             "optimizer.gradient_accumulation_steps=1",
             "optimizer.weight_decay=0.01",
             # Experiment
