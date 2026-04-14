@@ -4,20 +4,50 @@ Assumes data is already prepared (sampled, downsampled, tokenized)
 by run_merfish_whole.py. Only runs STATE preprocessing + training.
 
 Hyperparameters from notebook 2026-04-13_20-36:
-  - max_epochs=10, early_stopping_patience=5
+  - max_epochs auto-scaled: max(1, 10 * 10M / size), early_stopping_patience=5
   - pad_length=2048, emsize=256, 4 heads, 3 layers, 512 FFN
   - max_lr=1e-4, dropout=0.1, batch_size=64
   - LMI max_epochs=300
 """
 
+import sys
 import shutil
 from pathlib import Path
+
+# ── Auto-log: tee stdout/stderr to .log file next to this script ─────────
+SCRIPT_PATH = Path(__file__).resolve()
+LOG_PATH = SCRIPT_PATH.with_suffix(".log")
+
+
+class Tee:
+    """Write to both a file and the original stream."""
+    def __init__(self, stream, log_file):
+        self.stream = stream
+        self.log_file = log_file
+
+    def write(self, data):
+        self.stream.write(data)
+        self.log_file.write(data)
+        self.log_file.flush()
+
+    def flush(self):
+        self.stream.flush()
+        self.log_file.flush()
+
+
+_log_f = open(LOG_PATH, "w")
+sys.stdout = Tee(sys.__stdout__, _log_f)
+sys.stderr = Tee(sys.__stderr__, _log_f)
+print(f"Logging to {LOG_PATH}")
+
+# ── Imports ───────────────────────────────────────────────────────────────
 from scaling_laws.prepare.data import Experiments
 import numpy as np
 
 datasets = ["merfish"]
-sizes = list(map(int, np.logspace(np.log10(60000), 2, 10)))
-qualities = list(map(lambda x: round(x, 7), np.logspace(0, np.log10(10 / 367), 10)))
+# Single point matching notebook 2026-04-13_20-36
+sizes = [60000]
+qualities = [1.0]
 path_to_data_dir = "/home/igor/noise_scaling/data"
 signal_columns = ["cur_idx", "ng_idx"]
 seeds = [42]
@@ -45,7 +75,7 @@ experiments: Experiments = Experiments(
 
 experiments.prepare_state_data(max_workers=50)
 
-# ── 3. Train / embed / MI (parallel) ────────────────────────────────────
+# ── 2. Train / embed / MI (parallel) ────────────────────────────────────
 
 for seed in seeds:
 
@@ -61,12 +91,10 @@ for seed in seeds:
     )
 
     experiments.parallel_run(
-        max_workers=8,
         sleep_time=0.2,
         retrain=True,
         reembed=True,
         recompute_mutual_information=True,
-        max_epochs=10,
         early_stopping_patience=5,
         jobs_per_gpu=2,
         log_dir=f"{path_to_data_dir}/merfish/logs/state_run_seed_{seed}",

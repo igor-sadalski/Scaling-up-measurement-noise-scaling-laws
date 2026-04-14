@@ -176,6 +176,31 @@ class State(BaseAlgorithm):
         subprocess.run(cmd_fit, cwd=str(self.state_package_dir), env=env, check=True)
         print("  Training complete.")
 
+        # Save training/validation loss curves to results/State/loss/
+        self._save_loss_curves()
+
+    def _save_loss_curves(self) -> None:
+        """Copy Lightning metrics.csv to results/State/loss/ after training."""
+        import shutil
+
+        log_dirs = sorted(glob.glob(
+            str(self.checkpoint_dir / f"state_{self.profile_name}" / "version_*")
+        ))
+        if not log_dirs:
+            print("  Warning: no Lightning log dir found, skipping loss save")
+            return
+
+        metrics_file = Path(log_dirs[-1]) / "metrics.csv"
+        if not metrics_file.exists():
+            print(f"  Warning: metrics.csv not found at {metrics_file}")
+            return
+
+        loss_dir = self.save_folder_path / self.model_name / "loss"
+        loss_dir.mkdir(parents=True, exist_ok=True)
+        dest = loss_dir / "metrics.csv"
+        shutil.copy(metrics_file, dest)
+        print(f"  Loss curves saved to {dest}")
+
     def _find_best_checkpoint(self) -> str:
         """Find the best checkpoint (single .ckpt saved by save_top_k=1)."""
         ckpts = sorted(glob.glob(str(self.checkpoint_dir / "**" / "*.ckpt"), recursive=True))

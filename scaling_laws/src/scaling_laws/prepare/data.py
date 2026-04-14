@@ -4,6 +4,7 @@ import os
 import pickle
 import shutil
 import time
+import traceback
 import scvi
 from tqdm import tqdm
 import multiprocessing as mp
@@ -519,17 +520,18 @@ class ExperimentJobIterator:
         self.gpu_generators = {}
 
     def _get_config_for_size(self, algo: str, size: int) -> dict:
+        max_size = max(self.sizes)
         if algo == "Geneformer":
-            max_epochs = max(1, int(10 * (10_000_000 / size)))
-            print(f"Max epochs for {algo} with {size} cells: {max_epochs}")
+            max_epochs = max(1, int(10 * (max_size / size)))
+            print(f"Max epochs for {algo} with {size} cells (max_size={max_size}): {max_epochs}")
             return {"max_epochs": max_epochs, "early_stopping_patience": 3}
         elif algo == "SCVI":
-            max_epochs = max(1, int(1 * (10_000_000 / size)))
-            print(f"Max epochs for {algo} with {size} cells: {max_epochs}")
+            max_epochs = max(1, int(1 * (max_size / size)))
+            print(f"Max epochs for {algo} with {size} cells (max_size={max_size}): {max_epochs}")
             return {"max_epochs": max_epochs, "early_stopping_patience": 3}
         elif algo == "State":
-            max_epochs = max(1, int(10 * (10_000_000 / size)))
-            print(f"Max epochs for {algo} with {size} cells: {max_epochs}")
+            max_epochs = max(1, int(10 * (max_size / size)))
+            print(f"Max epochs for {algo} with {size} cells (max_size={max_size}): {max_epochs}")
             return {"max_epochs": max_epochs, "early_stopping_patience": 3}
         else:
             raise ValueError(f"Algorithm {algo} not supported")
@@ -1194,9 +1196,9 @@ class Experiments:
             all_gpus = self._detect_gpus()
             # Build a slot pool: each GPU appears jobs_per_gpu times
             gpu_slots = all_gpus * jobs_per_gpu
-            max_workers = min(max_workers, len(gpu_slots))
+            max_workers = len(gpu_slots)
             free_gpus = list(gpu_slots)
-            print(f"GPU scheduling: {len(all_gpus)} GPUs x {jobs_per_gpu} jobs/GPU = {len(gpu_slots)} slots, max_workers capped to {max_workers}")
+            print(f"GPU scheduling: {len(all_gpus)} GPUs x {jobs_per_gpu} jobs/GPU = max_workers={max_workers}")
 
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             active_futures = {}
@@ -1798,14 +1800,86 @@ class JobProcessor:
 
     def __call__(self):
         try:
+            import pty
+            import sys as _sys
+
+            ji = self.job_info
+            tag = f"[{ji['dataset']},{ji['quality']},{ji['size']},{ji['algo']}]"
+
             if self.log_path is not None:
+                env = {**os.environ, "PYTHONUNBUFFERED": "1", "TERM": "xterm", "COLUMNS": "120"}
                 with open(self.log_path, "w") as log_f:
-                    log_f.write("=" * 60 + "\n")
-                    for k, v in self.job_info.items():
-                        log_f.write(f"{k}: {v}\n")
-                    log_f.write("=" * 60 + "\n\n")
+                    header = "=" * 60 + "\n"
+                    for k, v in ji.items():
+                        header += f"{k}: {v}\n"
+                    header += "=" * 60 + "\n\n"
+                    log_f.write(header)
                     log_f.flush()
-                    subprocess.run(self.cmd, check=True, stdout=log_f, stderr=subprocess.STDOUT)
+                    print(header, flush=True)
+
+                    # Use a pseudo-TTY so Lightning shows progress bars
+                    master_fd, slave_fd = pty.openpty()
+                    proc = subprocess.Popen(
+                        self.cmd, stdout=slave_fd, stderr=subprocess.STDOUT,
+                        env=env, close_fds=True,
+                    )
+                    os.close(slave_fd)
+
+                    import re
+
+                    buf = ""
+                    cur_epoch, total_epochs = 0, ji.get("max_epochs", 10)
+                    t_start = time.time()
+
+                    while True:
+                        try:
+                            chunk = os.read(master_fd, 8192)
+                        except OSError:
+                            break
+                        if not chunk:
+                            break
+                        decoded = chunk.decode("utf-8", errors="replace")
+                        log_f.write(decoded)
+                        log_f.flush()
+
+                        # Split on \n and \r to capture progress bar updates
+                        buf += decoded
+                        parts = re.split(r"[\r\n]", buf)
+                        buf = parts[-1]  # keep incomplete tail
+                        for part in parts[:-1]:
+                            part = part.strip()
+                            if not part:
+                                continue
+
+                            # Track epoch from progress bar lines
+                            m = re.match(r"Epoch\s+(\d+)/(\d+)", part)
+                            if m:
+                                cur_epoch = int(m.group(1))
+                                total_epochs = int(m.group(2))
+
+                            # Skip per-batch updates, only show key lines
+                            is_epoch_batch = "Epoch" in part and "it/s" in part
+                            if is_epoch_batch:
+                                continue
+
+                            if any(kw in part for kw in ("Epoch", "Metric", "val_loss", "Training complete",
+                                                          "Embeddings", "MI for", "Error", "Traceback",
+                                                          "success!", "CUDA", "OutOfMemory")):
+                                # Build epoch progress + ETA
+                                elapsed = time.time() - t_start
+                                if cur_epoch > 0:
+                                    eta_s = elapsed / cur_epoch * (total_epochs - cur_epoch)
+                                    eta = f"{eta_s/60:.1f}m" if eta_s >= 60 else f"{eta_s:.0f}s"
+                                else:
+                                    eta = "?"
+                                progress = f"epoch {cur_epoch}/{total_epochs} ETA {eta}"
+                                _sys.stdout.write(f"{tag} ({progress}) {part}\n")
+                                _sys.stdout.flush()
+
+                    os.close(master_fd)
+                    proc.wait()
+                    if proc.returncode != 0:
+                        raise subprocess.CalledProcessError(proc.returncode, self.cmd)
             else:
                 subprocess.run(self.cmd, check=True)
         except subprocess.CalledProcessError as e:
