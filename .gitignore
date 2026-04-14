@@ -21,3 +21,4 @@ analysis/2026-04-08_veryfing_data_correctness/wandb
 scaling_laws/wandb
 *.log
 logs/
+failed_jobs.txt

@@ -1,14 +1,13 @@
-"""Run STATE on PBMC, larry, then shendure.
+"""Run STATE on all datasets (PBMC, larry, merfish, shendure).
 
-Assumes raw data is already prepared (sampled, downsampled) by the
-per-dataset run_*_whole.py scripts. Only runs STATE preprocessing,
-training, embedding, and MI estimation.
+Assumes raw data and STATE preprocessing are already done.
+Only runs training, embedding, and MI estimation.
 
 Epoch scaling: max_epochs = max(1, 10 * max_dataset_size / size),
 so the largest size per dataset trains for 10 epochs and smaller
 sizes train proportionally longer (with early stopping patience=5).
 
-Order: PBMC (2 jobs/GPU), larry (2 jobs/GPU), shendure (1 job/GPU).
+Order: PBMC, larry, merfish (50 parallel jobs), then shendure (8 parallel).
 """
 
 import sys
@@ -52,7 +51,6 @@ DATASETS = {
         "signal_columns": ["celltype.l3", "protein_counts"],
         "seeds": [42, 2303, 2701],
         "jobs_per_gpu": 2,
-        "prep_workers": 50,
     },
     "larry": {
         "sizes": [100, 215, 464, 1000, 2154, 4641, 10000, 21544, 46415, 100000],
@@ -60,7 +58,13 @@ DATASETS = {
         "signal_columns": ["clone"],
         "seeds": [42, 1404, 2701],
         "jobs_per_gpu": 2,
-        "prep_workers": 50,
+    },
+    "merfish": {
+        "sizes": [100, 203, 414, 843, 1716, 3494, 7113, 14480, 29475, 60000],
+        "qualities": [0.027248, 0.0406617, 0.0606789, 0.0905502, 0.1351267, 0.2016475, 0.3009156, 0.4490518, 0.6701133, 1.0],
+        "signal_columns": ["cur_idx", "ng_idx"],
+        "seeds": [1404, 2303, 2701],
+        "jobs_per_gpu": 2,
     },
     "shendure": {
         "sizes": [100, 359, 1291, 4641, 16681, 59948, 215443, 774263, 2782559, 10000000],
@@ -68,7 +72,6 @@ DATASETS = {
         "signal_columns": ["author_day"],
         "seeds": [42],
         "jobs_per_gpu": 1,
-        "prep_workers": 8,
     },
 }
 
@@ -77,23 +80,10 @@ for ds_name, cfg in DATASETS.items():
     print(f"  DATASET: {ds_name}")
     print(f"  {len(cfg['sizes'])} sizes x {len(cfg['qualities'])} qualities "
           f"x {len(cfg['seeds'])} seeds = {len(cfg['sizes']) * len(cfg['qualities']) * len(cfg['seeds'])} runs")
-    print(f"  jobs_per_gpu={cfg['jobs_per_gpu']}, prep_workers={cfg['prep_workers']}")
+    print(f"  jobs_per_gpu={cfg['jobs_per_gpu']}")
     print(f"{'='*70}\n")
 
-    # ── 1. STATE preprocessing ────────────────────────────────────────
-    print(f"[{ds_name}] Preprocessing...")
-    experiments = Experiments(
-        datasets=[ds_name],
-        sizes=cfg["sizes"],
-        qualities=cfg["qualities"],
-        algos=["State"],
-        path_to_data_dir=path_to_data_dir,
-        signal_columns=cfg["signal_columns"],
-        seed=cfg["seeds"][0],
-    )
-    experiments.prepare_state_data(max_workers=cfg["prep_workers"])
-
-    # ── 2. Train / embed / MI ─────────────────────────────────────────
+    # ── Train / embed / MI ────────────────────────────────────────────
     for seed in cfg["seeds"]:
         print(f"\n[{ds_name}] Training + MI with seed={seed}...")
         experiments = Experiments(
