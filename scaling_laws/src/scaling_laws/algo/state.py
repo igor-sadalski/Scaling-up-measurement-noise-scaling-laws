@@ -33,7 +33,7 @@ class State(BaseAlgorithm):
         early_stopping_patience: int = 5,
         dataset_name: str | None = None,
         seed: int = 42,
-        pad_length: int = 512,
+        pad_length: int = 2048,
         emsize: int = 256,
         d_hid: int = 512,
         nhead: int = 4,

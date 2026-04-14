@@ -410,6 +410,84 @@ class PrepareData:
             raise FileNotFoundError(f"Downsampled data not found at {downsampled_path}")
 
 
+def _prepare_state_data_single(
+    path_to_data_dir, dataset, size, quality,
+    esm_embeddings_path, state_python, state_package_dir, state_defaults_yaml,
+):
+    """Prepare STATE preprocessing profile for a single (dataset, size, quality) combo.
+
+    Top-level function so it can be pickled by ProcessPoolExecutor.
+    """
+    print(f"\n=== Preparing State data for {dataset} / {size} / {quality} ===")
+
+    profile_name = f"scaling_{dataset}_{size}_{quality}".replace(".", "_")
+
+    train_base = path_to_data_dir / dataset / f"{size}" / f"{quality}"
+    val_base = path_to_data_dir / dataset / "validation" / f"{quality}"
+    test_base = path_to_data_dir / dataset / "test" / f"{quality}"
+
+    pd_train = PrepareData(base_dir=str(train_base))
+    pd_val = PrepareData(base_dir=str(val_base))
+    pd_test = PrepareData(base_dir=str(test_base))
+
+    train_csv = pd_train.prepare_for_state(profile_name, split="train")
+    pd_val.prepare_for_state(profile_name, split="val")
+    pd_test.prepare_for_state(profile_name, split="test")
+
+    profile_dir = pd_train.preprocessed / "state_data"
+    combined_val_csv = profile_dir / "val_combined.csv"
+    val_h5ad = pd_val.preprocessed / "preprocessed.h5ad"
+    test_h5ad = pd_test.preprocessed / "preprocessed.h5ad"
+    combined_val_csv.write_text(
+        f"species,path,names\n"
+        f"human,{val_h5ad},{profile_name}_val\n"
+        f"human,{test_h5ad},{profile_name}_test\n"
+    )
+
+    val_only_csv = profile_dir / "val_only.csv"
+    val_only_csv.write_text(
+        f"species,path,names\n"
+        f"human,{val_h5ad},{profile_name}_val\n"
+    )
+
+    config_path = profile_dir / "state_config.yaml"
+    shutil.copy(state_defaults_yaml, config_path)
+
+    cmd = [
+        str(state_python), "-m", "state", "emb", "preprocess",
+        "--profile-name", profile_name,
+        "--train-csv", str(train_csv),
+        "--val-csv", str(combined_val_csv),
+        "--output-dir", str(profile_dir),
+        "--config-file", str(config_path),
+    ]
+    if esm_embeddings_path:
+        cmd.extend(["--all-embeddings", esm_embeddings_path])
+    print(f"  Running: {' '.join(cmd)}")
+    subprocess.run(cmd, cwd=str(state_package_dir), check=True)
+
+    from omegaconf import OmegaConf
+
+    cfg = OmegaConf.load(str(config_path))
+    preprocessed_val_csv = Path(cfg.dataset[profile_name].val)
+    val_only_out = profile_dir / f"val_only_{profile_name}.csv"
+    df_val = pd.read_csv(str(preprocessed_val_csv))
+    df_val = df_val[df_val["names"].str.endswith("_val")]
+    df_val.to_csv(str(val_only_out), index=False)
+    assert val_only_out.exists(), f"val_only CSV not written: {val_only_out}"
+    cfg.dataset[profile_name].val = str(val_only_out)
+    cfg.dataset[profile_name].num_datasets = len(
+        pd.read_csv(str(cfg.dataset[profile_name].train))
+    ) + len(df_val)
+    OmegaConf.save(cfg, str(config_path))
+    cfg_verify = OmegaConf.load(str(config_path))
+    assert str(val_only_out) in cfg_verify.dataset[profile_name].val, (
+        f"Config patching failed: val still points to {cfg_verify.dataset[profile_name].val}"
+    )
+    print(f"  Config patched: val uses val-only (no test leakage)")
+    print(f"  Profile saved to {profile_dir}")
+
+
 class ExperimentJobIterator:
     """Iterator that yields experiment job arguments with GPU allocation handled automatically."""
 
@@ -943,7 +1021,7 @@ class Experiments:
                         model_input_size=512, signal_columns=self.signal_columns, chunk_size=chunk_size, nproc=nproc
                     )
 
-    def prepare_state_data(self, esm_embeddings_path: str | None = None):
+    def prepare_state_data(self, esm_embeddings_path: str | None = None, max_workers: int = 1):
         """Run ``state emb preprocess`` for every dataset / size / quality.
 
         Parameters
@@ -953,6 +1031,11 @@ class Experiments:
             tensors.  When provided, STATE will use these embeddings
             instead of one-hot vectors.  Defaults to the project-wide
             merged ESM file at ``data/other/esm/merged_esm_embeddings.pt``.
+        max_workers : int, optional
+            Number of parallel workers for preprocessing.  Each
+            (dataset, size, quality) combo writes to its own directory
+            so they can safely run concurrently.  Default is 1
+            (sequential).
 
         For each (dataset, size, quality) combination this method:
         1. Writes CSV manifests for train, validation, and test splits
@@ -978,88 +1061,36 @@ class Experiments:
             else:
                 print("  No ESM embeddings found, falling back to one-hot")
 
-        for dataset in self.datasets:
-            for size in self.sizes:
-                for quality in self.qualities:
-                    print(f"\n=== Preparing State data for {dataset} / {size} / {quality} ===")
+        combos = [
+            (dataset, size, quality)
+            for dataset in self.datasets
+            for size in self.sizes
+            for quality in self.qualities
+        ]
 
-                    profile_name = f"scaling_{dataset}_{size}_{quality}".replace(".", "_")
-
-                    # --- per-split PrepareData to create state_data/ + CSV ---
-                    train_base = self.path_to_data_dir / dataset / f"{size}" / f"{quality}"
-                    val_base = self.path_to_data_dir / dataset / "validation" / f"{quality}"
-                    test_base = self.path_to_data_dir / dataset / "test" / f"{quality}"
-
-                    pd_train = PrepareData(base_dir=str(train_base))
-                    pd_val = PrepareData(base_dir=str(val_base))
-                    pd_test = PrepareData(base_dir=str(test_base))
-
-                    train_csv = pd_train.prepare_for_state(profile_name, split="train")
-                    val_csv_path = pd_val.prepare_for_state(profile_name, split="val")
-                    pd_test.prepare_for_state(profile_name, split="test")
-
-                    # Combined CSV includes val + test so gene vocabulary
-                    # covers all splits (needed at inference time).
-                    profile_dir = pd_train.preprocessed / "state_data"
-                    combined_val_csv = profile_dir / "val_combined.csv"
-                    val_h5ad = pd_val.preprocessed / "preprocessed.h5ad"
-                    test_h5ad = pd_test.preprocessed / "preprocessed.h5ad"
-                    combined_val_csv.write_text(
-                        f"species,path,names\n"
-                        f"human,{val_h5ad},{profile_name}_val\n"
-                        f"human,{test_h5ad},{profile_name}_test\n"
-                    )
-
-                    # Val-only CSV — used for training validation / early stopping
-                    # to avoid data leakage from test set.
-                    val_only_csv = profile_dir / "val_only.csv"
-                    val_only_csv.write_text(
-                        f"species,path,names\n"
-                        f"human,{val_h5ad},{profile_name}_val\n"
-                    )
-
-                    # --- copy default config ---
-                    config_path = profile_dir / "state_config.yaml"
-                    shutil.copy(state_defaults_yaml, config_path)
-
-                    # --- state emb preprocess ---
-                    # Use combined CSV for gene discovery so all genes get embeddings
-                    cmd = [
-                        str(state_python), "-m", "state", "emb", "preprocess",
-                        "--profile-name", profile_name,
-                        "--train-csv", str(train_csv),
-                        "--val-csv", str(combined_val_csv),
-                        "--output-dir", str(profile_dir),
-                        "--config-file", str(config_path),
-                    ]
-                    if esm_embeddings_path:
-                        cmd.extend(["--all-embeddings", esm_embeddings_path])
-                    print(f"  Running: {' '.join(cmd)}")
-                    subprocess.run(cmd, cwd=str(state_package_dir), check=True)
-
-                    # Patch config: point val at val-only CSV so early
-                    # stopping during training does NOT see test data.
-                    from omegaconf import OmegaConf
-
-                    cfg = OmegaConf.load(str(config_path))
-                    preprocessed_val_csv = Path(cfg.dataset[profile_name].val)
-                    val_only_out = profile_dir / f"val_only_{profile_name}.csv"
-                    df_val = pd.read_csv(str(preprocessed_val_csv))
-                    df_val = df_val[df_val["names"].str.endswith("_val")]
-                    df_val.to_csv(str(val_only_out), index=False)
-                    assert val_only_out.exists(), f"val_only CSV not written: {val_only_out}"
-                    cfg.dataset[profile_name].val = str(val_only_out)
-                    cfg.dataset[profile_name].num_datasets = len(
-                        pd.read_csv(str(cfg.dataset[profile_name].train))
-                    ) + len(df_val)
-                    OmegaConf.save(cfg, str(config_path))
-                    # Verify the config was saved correctly
-                    cfg_verify = OmegaConf.load(str(config_path))
-                    assert str(val_only_out) in cfg_verify.dataset[profile_name].val, (
-                        f"Config patching failed: val still points to {cfg_verify.dataset[profile_name].val}"
-                    )
-                    print(f"  Config patched: val uses val-only (no test leakage)")
-                    print(f"  Profile saved to {profile_dir}")
+        if max_workers <= 1:
+            for dataset, size, quality in combos:
+                _prepare_state_data_single(
+                    self.path_to_data_dir, dataset, size, quality,
+                    esm_embeddings_path, state_python, state_package_dir, state_defaults_yaml,
+                )
+        else:
+            print(f"  Preprocessing {len(combos)} combos with {max_workers} workers")
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                futures = {
+                    executor.submit(
+                        _prepare_state_data_single,
+                        self.path_to_data_dir, dataset, size, quality,
+                        esm_embeddings_path, state_python, state_package_dir, state_defaults_yaml,
+                    ): (dataset, size, quality)
+                    for dataset, size, quality in combos
+                }
+                for future in as_completed(futures):
+                    dataset, size, quality = futures[future]
+                    try:
+                        future.result()
+                    except Exception as e:
+                        print(f"  FAILED: {dataset} / {size} / {quality}: {e}")
 
     def _record_failed_job(self, job_args: dict, error: str, file_path: str = "failed_jobs.txt"):
         """Record failed job configuration to a file with timestamp."""
@@ -1098,6 +1129,18 @@ class Experiments:
                 self._record_failed_job(job_args, ".", file_path="failed.txt")
                 print(f"Error running {algo} for {dataset} with {size} cells and {quality} quality: {e}")
 
+    @staticmethod
+    def _detect_gpus() -> list[int]:
+        """Return list of GPU IDs visible on this machine."""
+        try:
+            out = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader,nounits"],
+                stderr=subprocess.DEVNULL,
+            ).decode()
+            return [int(line.strip()) for line in out.strip().split("\n") if line.strip()]
+        except Exception:
+            return list(range(8))
+
     def parallel_run(
         self,
         max_workers: int = 40,
@@ -1109,8 +1152,31 @@ class Experiments:
         mem_limit: dict[str, int] | None = None,
         reembed_checkpoint: str | None = None,
         batch_size_inference: int | None = None,
+        max_epochs: int | None = None,
+        early_stopping_patience: int | None = None,
+        jobs_per_gpu: int = 0,
+        log_dir: str | None = None,
     ):
-        """SCVI needs to run alone since it blocks all of the GPUs"""
+        """Run experiments in parallel across GPUs.
+
+        Parameters
+        ----------
+        jobs_per_gpu : int
+            0 — disabled (default): GPU allocation is handled by the
+            iterator's memory-based heuristic via ``mem_limit``.
+            1 — one job per GPU at a time (exclusive).
+            2, 3, … — up to N concurrent jobs per GPU.
+            The number of GPUs is auto-detected and ``max_workers``
+            is capped to ``jobs_per_gpu * num_gpus``.
+        log_dir : str, optional
+            Directory to save per-job log files.  Each job writes its
+            stdout/stderr to ``<log_dir>/<algo>_<size>_<quality>.txt``.
+            If None, no logs are saved.
+        """
+        if log_dir is not None:
+            log_dir = Path(log_dir)
+            log_dir.mkdir(parents=True, exist_ok=True)
+            print(f"Saving job logs to: {log_dir}")
 
         job_iterator = ExperimentJobIterator(
             datasets=self.datasets,
@@ -1123,6 +1189,14 @@ class Experiments:
             sleep_time=sleep_time,
             mem_limit=mem_limit or {"Geneformer": 100, "default": 33_000},
         )
+
+        if jobs_per_gpu > 0:
+            all_gpus = self._detect_gpus()
+            # Build a slot pool: each GPU appears jobs_per_gpu times
+            gpu_slots = all_gpus * jobs_per_gpu
+            max_workers = min(max_workers, len(gpu_slots))
+            free_gpus = list(gpu_slots)
+            print(f"GPU scheduling: {len(all_gpus)} GPUs x {jobs_per_gpu} jobs/GPU = {len(gpu_slots)} slots, max_workers capped to {max_workers}")
 
         with ProcessPoolExecutor(max_workers=max_workers) as executor:
             active_futures = {}
@@ -1143,8 +1217,15 @@ class Experiments:
                             "batch_size_inference": batch_size_inference,
                             "seed": self.seed,
                             "single_job_path": single_job_path,
+                            "log_dir": str(log_dir) if log_dir is not None else None,
                         }
                     )
+                    if max_epochs is not None:
+                        job_args["max_epochs"] = max_epochs
+                    if early_stopping_patience is not None:
+                        job_args["early_stopping_patience"] = early_stopping_patience
+                    if jobs_per_gpu > 0:
+                        job_args["device"] = free_gpus.pop(0)
                     future = executor.submit(JobProcessor(**job_args))
                     active_futures[future] = job_args
                     jobs_submitted += 1
@@ -1159,20 +1240,26 @@ class Experiments:
 
             total_jobs = len(list(itertools.product(self.datasets, self.sizes, self.qualities, self.algos)))
             completed_jobs = 0
+            failed_jobs = 0
+            pbar = tqdm(total=total_jobs, desc="Jobs", unit="job")
 
             while active_futures:
                 completed_future = next(as_completed(active_futures))
                 completed_job_args = active_futures.pop(completed_future)
                 completed_jobs += 1
+                pbar.update(1)
+
+                if jobs_per_gpu > 0:
+                    free_gpus.append(completed_job_args["device"])
 
                 try:
                     completed_future.result()
-                    print(
-                        f"Completed job {completed_jobs}/{total_jobs}: {completed_job_args['algo']} for {completed_job_args['dataset']} ({completed_job_args['size']} cells, quality {completed_job_args['quality']})"
-                    )
+                    pbar.set_postfix(done=completed_jobs, failed=failed_jobs, active=len(active_futures))
                 except Exception as e:
+                    failed_jobs += 1
+                    pbar.set_postfix(done=completed_jobs, failed=failed_jobs, active=len(active_futures))
                     self._record_failed_job(completed_job_args, str(e))
-                    print(f"Error in job {completed_job_args}: {e}")
+                    tqdm.write(f"FAIL: {completed_job_args['algo']} {completed_job_args['size']}x{completed_job_args['quality']}: {e}")
 
                 try:
                     job_args = next(job_iterator)
@@ -1186,8 +1273,15 @@ class Experiments:
                             "batch_size_inference": batch_size_inference,
                             "seed": self.seed,
                             "single_job_path": single_job_path,
+                            "log_dir": str(log_dir) if log_dir is not None else None,
                         }
                     )
+                    if max_epochs is not None:
+                        job_args["max_epochs"] = max_epochs
+                    if early_stopping_patience is not None:
+                        job_args["early_stopping_patience"] = early_stopping_patience
+                    if jobs_per_gpu > 0:
+                        job_args["device"] = free_gpus.pop(0)
                     new_future = executor.submit(JobProcessor(**job_args))
                     active_futures[new_future] = job_args
                     print(
@@ -1197,7 +1291,8 @@ class Experiments:
                     print(f"No more jobs to submit. Active jobs: {len(active_futures)}")
                     pass
 
-            print(f"All {completed_jobs} jobs completed!")
+            pbar.close()
+            print(f"All {completed_jobs} jobs completed! ({failed_jobs} failed)")
 
     def evaluate_checkpoints_mutual_information(
         self,
@@ -1684,9 +1779,35 @@ class JobProcessor:
         if batch_size_inference:
             self.cmd.extend(["--batch_size_inference", str(batch_size_inference)])
 
+        log_dir = kwargs.get("log_dir", None)
+        if log_dir is not None:
+            self.log_path = Path(log_dir) / f"{algo}_{size}_{quality}.txt"
+        else:
+            self.log_path = None
+
+        self.job_info = {
+            "dataset": dataset,
+            "size": size,
+            "quality": quality,
+            "algo": algo,
+            "max_epochs": max_epochs,
+            "early_stopping_patience": early_stopping_patience,
+            "device": device,
+            "seed": seed,
+        }
+
     def __call__(self):
         try:
-            subprocess.run(self.cmd, check=True)
+            if self.log_path is not None:
+                with open(self.log_path, "w") as log_f:
+                    log_f.write("=" * 60 + "\n")
+                    for k, v in self.job_info.items():
+                        log_f.write(f"{k}: {v}\n")
+                    log_f.write("=" * 60 + "\n\n")
+                    log_f.flush()
+                    subprocess.run(self.cmd, check=True, stdout=log_f, stderr=subprocess.STDOUT)
+            else:
+                subprocess.run(self.cmd, check=True)
         except subprocess.CalledProcessError as e:
             print(f"Error running command: {self.cmd}")
             print(f"Error: {e}")
