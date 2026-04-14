@@ -943,8 +943,16 @@ class Experiments:
                         model_input_size=512, signal_columns=self.signal_columns, chunk_size=chunk_size, nproc=nproc
                     )
 
-    def prepare_state_data(self):
+    def prepare_state_data(self, esm_embeddings_path: str | None = None):
         """Run ``state emb preprocess`` for every dataset / size / quality.
+
+        Parameters
+        ----------
+        esm_embeddings_path : str, optional
+            Path to a ``.pt`` file mapping gene names to ESM embedding
+            tensors.  When provided, STATE will use these embeddings
+            instead of one-hot vectors.  Defaults to the project-wide
+            merged ESM file at ``data/other/esm/merged_esm_embeddings.pt``.
 
         For each (dataset, size, quality) combination this method:
         1. Writes CSV manifests for train, validation, and test splits
@@ -960,6 +968,15 @@ class Experiments:
         state_python = Path("/home/igor/miniconda3/envs/state/bin/python")
         state_package_dir = Path("/home/igor/noise_scaling/modeling/STATE/state")
         state_defaults_yaml = state_package_dir / "src" / "state" / "configs" / "state-defaults.yaml"
+
+        # Resolve ESM embeddings path
+        if esm_embeddings_path is None:
+            default_esm = self.path_to_data_dir / "other" / "esm" / "merged_esm_embeddings.pt"
+            if default_esm.exists():
+                esm_embeddings_path = str(default_esm)
+                print(f"  Using ESM embeddings: {esm_embeddings_path}")
+            else:
+                print("  No ESM embeddings found, falling back to one-hot")
 
         for dataset in self.datasets:
             for size in self.sizes:
@@ -1015,6 +1032,8 @@ class Experiments:
                         "--output-dir", str(profile_dir),
                         "--config-file", str(config_path),
                     ]
+                    if esm_embeddings_path:
+                        cmd.extend(["--all-embeddings", esm_embeddings_path])
                     print(f"  Running: {' '.join(cmd)}")
                     subprocess.run(cmd, cwd=str(state_package_dir), check=True)
 

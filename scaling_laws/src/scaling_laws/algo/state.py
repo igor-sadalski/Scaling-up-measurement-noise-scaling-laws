@@ -16,7 +16,8 @@ class State(BaseAlgorithm):
 
     Self-supervised cell embedding model using a transformer encoder.
     Architecture matches Geneformer: 256 hidden, 4 heads, 3 layers, 512 context.
-    No ESM — uses one-hot gene embeddings.
+    Uses ESM-2 protein embeddings by default (via merged_esm_embeddings.pt);
+    falls back to one-hot gene embeddings if no ESM file is found.
 
     All STATE operations run via the `state` CLI in the `state` conda env:
       - state emb preprocess  (build gene-embedding profile)
