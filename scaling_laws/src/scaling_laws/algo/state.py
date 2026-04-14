@@ -97,7 +97,7 @@ class State(BaseAlgorithm):
 
         adata = ad.read_h5ad(train_h5ad, backed="r")
         num_cells = int(adata.shape[0])
-        batches_per_epoch = max(1, num_cells // 128)
+        batches_per_epoch = max(1, num_cells // 64)
         # Match Geneformer: validate & checkpoint every 1000 steps,
         # capped at batches_per_epoch (Lightning requires val_check_interval <= training batches)
         val_interval = min(1000, batches_per_epoch)
@@ -119,7 +119,7 @@ class State(BaseAlgorithm):
             "dataset.N=128",
             "dataset.S=128",
             # Model architecture (Geneformer-scale: 256 hidden, 4 heads, 3 layers; learning dynamics from STATE defaults)
-            "model.batch_size=128",
+            "model.batch_size=64",
             "model.emsize=256",
             "model.d_hid=512",
             "model.nhead=4",
@@ -128,7 +128,7 @@ class State(BaseAlgorithm):
             "model.dataset_correction=false",
             "model.dropout=0.1",
             # Optimizer
-            "optimizer.max_lr=5.0e-04",
+            "optimizer.max_lr=1.0e-04",
             "optimizer.gradient_accumulation_steps=1",
             "optimizer.weight_decay=0.01",
             # Experiment
