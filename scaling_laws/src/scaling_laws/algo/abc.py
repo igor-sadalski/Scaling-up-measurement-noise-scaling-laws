@@ -39,6 +39,7 @@ class BaseAlgorithm(ABC):
         self.model_path.mkdir(parents=True, exist_ok=True)
 
         self.embeddings_path: Path = self.save_folder_path / self.model_name / "embeddings.csv"
+        self.test_loss_path: Path = self.save_folder_path / self.model_name / "test_loss.txt"
 
         self.device: int = device
         # Set CUDA_VISIBLE_DEVICES so that the specified device becomes visible as device 0
@@ -71,6 +72,11 @@ class BaseAlgorithm(ABC):
     @abstractmethod
     def embed(self, **kwargs) -> np.ndarray:
         raise NotImplementedError("Subclasses must implement this method")
+
+    def compute_test_loss(self) -> float | None:
+        """Compute test loss and save to disk. Override in subclasses that have a loss."""
+        print(f"{self.method_name} does not have a test loss to compute.")
+        return None
 
     def mutual_information(self, max_epochs: int = 300, device: str | None = None) -> dict:
         # Hard code to use GPU - exit if not available

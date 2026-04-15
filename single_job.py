@@ -100,6 +100,12 @@ parser.add_argument(
     help="Whether to recompute mutual information",
 )
 parser.add_argument(
+    "--recompute_loss",
+    type=str2bool,
+    default=False,
+    help="Whether to compute test loss",
+)
+parser.add_argument(
     "--checkpoint_path",
     type=str,
     default=None,
@@ -139,6 +145,7 @@ experiments.single_job(
     retrain=args.retrain,
     reembed=args.reembed,
     recompute_mutual_information=args.recompute_mutual_information,
+    recompute_loss=args.recompute_loss,
     checkpoint_path=args.checkpoint_path,
     reembed_checkpoint=args.reembed_checkpoint,
     batch_size_inference=args.batch_size_inference,

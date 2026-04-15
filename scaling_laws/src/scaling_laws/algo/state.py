@@ -201,6 +201,24 @@ class State(BaseAlgorithm):
         shutil.copy(metrics_file, dest)
         print(f"  Loss curves saved to {dest}")
 
+    def compute_test_loss(self) -> float:
+        """Use best validation loss from metrics.csv as proxy for test loss."""
+        metrics_path = self.save_folder_path / self.model_name / "loss" / "metrics.csv"
+        if not metrics_path.exists():
+            raise FileNotFoundError(f"STATE metrics.csv not found at {metrics_path}")
+
+        df = pd.read_csv(metrics_path)
+        val_losses = df["validation/val_loss"].dropna()
+        if val_losses.empty:
+            raise ValueError(f"No validation loss values found in {metrics_path}")
+
+        best_val_loss = float(val_losses.min())
+
+        with open(self.test_loss_path, "w") as f:
+            f.write(f"{best_val_loss:.6f}")
+        print(f"STATE best val loss (proxy for test): {best_val_loss:.6f} saved to {self.test_loss_path}")
+        return best_val_loss
+
     def _find_best_checkpoint(self) -> str:
         """Find the best checkpoint (single .ckpt saved by save_top_k=1)."""
         ckpts = sorted(glob.glob(str(self.checkpoint_dir / "**" / "*.ckpt"), recursive=True))

@@ -121,6 +121,21 @@ class SCVI(BaseAlgorithm):
 
         return self.vae
 
+    def compute_test_loss(self) -> float:
+        """Compute ELBO on the test set using the saved model."""
+        adata_test = ad.read_h5ad(
+            self.test_data_path / "preprocessed.h5ad",
+            backed="r",
+        )
+        vae = scvi.model.SCVI.load(dir_path=self.model_path, adata=adata_test)
+        # get_elbo returns the ELBO (higher = better fit)
+        elbo = vae.get_elbo(adata_test)
+
+        with open(self.test_loss_path, "w") as f:
+            f.write(f"{elbo:.6f}")
+        print(f"SCVI test ELBO: {elbo:.6f} saved to {self.test_loss_path}")
+        return elbo
+
     def embed(self) -> np.ndarray:
         # Ensure GPU is available and being used
         if not torch.cuda.is_available():

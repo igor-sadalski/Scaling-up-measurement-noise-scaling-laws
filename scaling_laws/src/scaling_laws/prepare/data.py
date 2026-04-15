@@ -1150,6 +1150,7 @@ class Experiments:
         retrain: bool = True,
         reembed: bool = True,
         recompute_mutual_information: bool = True,
+        recompute_loss: bool = False,
         checkpoint_path: str | None = None,
         mem_limit: dict[str, int] | None = None,
         reembed_checkpoint: str | None = None,
@@ -1214,6 +1215,7 @@ class Experiments:
                             "retrain": retrain,
                             "reembed": reembed,
                             "recompute_mutual_information": recompute_mutual_information,
+                            "recompute_loss": recompute_loss,
                             "checkpoint_path": checkpoint_path,
                             "reembed_checkpoint": reembed_checkpoint,
                             "batch_size_inference": batch_size_inference,
@@ -1270,6 +1272,7 @@ class Experiments:
                             "retrain": retrain,
                             "reembed": reembed,
                             "recompute_mutual_information": recompute_mutual_information,
+                            "recompute_loss": recompute_loss,
                             "checkpoint_path": checkpoint_path,
                             "reembed_checkpoint": reembed_checkpoint,
                             "batch_size_inference": batch_size_inference,
@@ -1362,6 +1365,7 @@ class Experiments:
         checkpoint_path: str | None = None,
         reembed_checkpoint: str | None = None,
         batch_size_inference: int | None = None,
+        recompute_loss: bool = False,
     ):
 
         base_dir = self.path_to_data_dir / f"{dataset}" / f"{size}" / f"{quality}"
@@ -1439,6 +1443,8 @@ class Experiments:
                 method.embed()
         if recompute_mutual_information:
             method.mutual_information()
+        if recompute_loss:
+            method.compute_test_loss()
 
     def evaluate_checkpoints_mutual_information_parallel(
         self,
@@ -1721,6 +1727,7 @@ class JobProcessor:
         retrain = kwargs.get("retrain", True)
         reembed = kwargs.get("reembed", True)
         recompute_mutual_information = kwargs.get("recompute_mutual_information", True)
+        recompute_loss = kwargs.get("recompute_loss", False)
         checkpoint_path = kwargs.get("checkpoint_path", None)
         reembed_checkpoint = kwargs.get("reembed_checkpoint", None)
         batch_size_inference = kwargs.get("batch_size_inference", None)
@@ -1765,6 +1772,8 @@ class JobProcessor:
             str(reembed).lower(),
             "--recompute_mutual_information",
             str(recompute_mutual_information).lower(),
+            "--recompute_loss",
+            str(recompute_loss).lower(),
             "--seed",
             str(seed),
         ]
