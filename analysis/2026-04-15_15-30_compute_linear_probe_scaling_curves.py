@@ -13,13 +13,43 @@ import os
 os.environ['OPENBLAS_NUM_THREADS'] = '6'
 os.environ['OMP_NUM_THREADS'] = '6'
 
+import sys
+from pathlib import Path
+
+# ── Auto-log: tee stdout/stderr to .log file next to this script ─────────
+SCRIPT_PATH = Path(__file__).resolve()
+LOG_PATH = SCRIPT_PATH.with_suffix(".log")
+
+
+class Tee:
+    """Write to both a file and the original stream."""
+    def __init__(self, stream, log_file):
+        self.stream = stream
+        self.log_file = log_file
+
+    def write(self, data):
+        self.stream.write(data)
+        self.log_file.write(data)
+        self.log_file.flush()
+
+    def flush(self):
+        self.stream.flush()
+        self.log_file.flush()
+
+
+_log_fh = open(LOG_PATH, "w")
+sys.stdout = Tee(sys.__stdout__, _log_fh)
+sys.stderr = Tee(sys.__stderr__, _log_fh)
+
+import scaling_laws  # noqa: F401 — activates timestamped print
+print(f"Logging to {LOG_PATH}")
+
 import warnings
 warnings.filterwarnings("ignore")
 
 import pandas as pd
 import numpy as np
 import anndata as ad
-from pathlib import Path
 from itertools import product
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from tqdm.auto import tqdm

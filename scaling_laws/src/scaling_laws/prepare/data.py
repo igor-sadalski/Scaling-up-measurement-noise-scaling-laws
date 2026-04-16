@@ -581,7 +581,17 @@ class ExperimentJobIterator:
 
     def _get_available_gpu(self, algo: str, timeout: int = 259200):
         """Generator that yields available GPU IDs when they become available."""
-        mem_limit = self.mem_limit[algo] if algo in self.mem_limit else self.mem_limit["default"]
+        mem_limit = self.mem_limit.get(algo) or self.mem_limit.get("default") or 0
+
+        # When mem_limit is disabled (<=0), just round-robin GPUs without
+        # memory checks.  This avoids blocking when jobs_per_gpu handles
+        # concurrency externally.
+        if mem_limit <= 0:
+            gpu_idx = 0
+            while True:
+                yield gpu_idx % 8  # placeholder; device is overridden by parallel_run
+                gpu_idx += 1
+
         start_time = time.time()
 
         def _get_gpu_memory_info():
@@ -1181,6 +1191,13 @@ class Experiments:
             log_dir.mkdir(parents=True, exist_ok=True)
             print(f"Saving job logs to: {log_dir}")
 
+        # When jobs_per_gpu > 0, GPU assignment is handled by the slot pool
+        # so disable the iterator's memory-based GPU blocking to avoid stalls.
+        if jobs_per_gpu > 0:
+            effective_mem_limit = {"default": 0}
+        else:
+            effective_mem_limit = mem_limit or {"Geneformer": 100, "default": 33_000}
+
         job_iterator = ExperimentJobIterator(
             datasets=self.datasets,
             sizes=self.sizes,
@@ -1190,7 +1207,7 @@ class Experiments:
             path_to_data_dir=self.path_to_data_dir,
             signal_columns=self.signal_columns,
             sleep_time=sleep_time,
-            mem_limit=mem_limit or {"Geneformer": 100, "default": 33_000},
+            mem_limit=effective_mem_limit,
         )
 
         if jobs_per_gpu > 0:

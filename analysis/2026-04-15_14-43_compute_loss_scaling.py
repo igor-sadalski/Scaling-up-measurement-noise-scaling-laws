@@ -16,19 +16,41 @@ LOG_PATH = SCRIPT_PATH.with_suffix(".log")
 
 
 class Tee:
-    """Write to both a file and the original stream."""
+    """Write to both a file and the original stream.
+
+    Safe for multiprocessing: write/flush silently ignore broken-pipe errors,
+    and close() is a no-op so forked children don't close the shared FD.
+    """
     def __init__(self, stream, log_file):
         self.stream = stream
         self.log_file = log_file
 
     def write(self, data):
-        self.stream.write(data)
-        self.log_file.write(data)
-        self.log_file.flush()
+        try:
+            self.stream.write(data)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+        try:
+            self.log_file.write(data)
+            self.log_file.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
     def flush(self):
-        self.stream.flush()
-        self.log_file.flush()
+        try:
+            self.stream.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+        try:
+            self.log_file.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            pass
+
+    def fileno(self):
+        return self.stream.fileno()
+
+    def close(self):
+        pass  # Don't close underlying streams from forked children
 
 
 _log_fh = open(LOG_PATH, "w")
@@ -57,6 +79,9 @@ def _geneformer_batch_size(dataset: str) -> int:
 
 def worker_geneformer(gpu_id, jobs, result_queue):
     """Worker: pin to GPU, import once, process all assigned jobs."""
+    # Reset stdout/stderr to avoid inherited Tee broken-pipe cascade
+    sys.stdout = sys.__stdout__
+    sys.stderr = sys.__stderr__
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     import torch
     import pickle
@@ -92,12 +117,12 @@ def worker_geneformer(gpu_id, jobs, result_queue):
             )
             metrics = trainer.evaluate()
             loss_path.write_text(f"{metrics['eval_loss']:.6f}")
-            print(f"  OK   GPU{gpu_id} Geneformer {ds}/{sz}/{q}: loss={metrics['eval_loss']:.6f}", flush=True)
+            print(f"  OK   GPU{gpu_id} Geneformer [{ds},{q},{sz}]: loss={metrics['eval_loss']:.6f}", flush=True)
             done += 1
             del model, trainer
             torch.cuda.empty_cache()
         except Exception as e:
-            print(f"  FAIL GPU{gpu_id} Geneformer {ds}/{sz}/{q}: {e}", flush=True)
+            print(f"  FAIL GPU{gpu_id} Geneformer [{ds},{q},{sz}]: {e}", flush=True)
             fail += 1
             torch.cuda.empty_cache()
 
@@ -106,6 +131,9 @@ def worker_geneformer(gpu_id, jobs, result_queue):
 
 def worker_scvi(gpu_id, jobs, result_queue):
     """Worker: pin to GPU, import once, process all assigned jobs."""
+    # Reset stdout/stderr to avoid inherited Tee broken-pipe cascade
+    sys.stdout = sys.__stdout__
+    sys.stderr = sys.__stderr__
     os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
     import torch
     import scvi as scvi_lib
@@ -123,12 +151,12 @@ def worker_scvi(gpu_id, jobs, result_queue):
             vae = scvi_lib.model.SCVI.load(dir_path=model_path, adata=adata_test)
             elbo = vae.get_elbo(adata_test)
             loss_path.write_text(f"{elbo:.6f}")
-            print(f"  OK   GPU{gpu_id} SCVI {ds}/{sz}/{q}: elbo={elbo:.6f}", flush=True)
+            print(f"  OK   GPU{gpu_id} SCVI [{ds},{q},{sz}]: elbo={elbo:.6f}", flush=True)
             done += 1
             del vae
             torch.cuda.empty_cache()
         except Exception as e:
-            print(f"  FAIL GPU{gpu_id} SCVI {ds}/{sz}/{q}: {e}", flush=True)
+            print(f"  FAIL GPU{gpu_id} SCVI [{ds},{q},{sz}]: {e}", flush=True)
             fail += 1
             torch.cuda.empty_cache()
 
@@ -238,17 +266,17 @@ if len(state_missing) > 0:
         metrics_path = find_state_metrics_csv(model_dir)
         loss_path = model_dir / "test_loss.txt"
         if metrics_path is None:
-            print(f"  SKIP State {ds}/{sz}/{q}: no valid metrics CSV", flush=True)
+            print(f"  SKIP State [{ds},{q},{sz}]: no valid metrics CSV", flush=True)
             fail += 1
             continue
         loss_val = read_state_loss(metrics_path)
         if loss_val is not None:
             loss_path.parent.mkdir(parents=True, exist_ok=True)
             loss_path.write_text(f"{loss_val:.6f}")
-            print(f"  OK   State {ds}/{sz}/{q}: loss={loss_val:.6f}", flush=True)
+            print(f"  OK   State [{ds},{q},{sz}]: loss={loss_val:.6f}", flush=True)
             ok += 1
         else:
-            print(f"  FAIL State {ds}/{sz}/{q}: no loss values in {metrics_path}", flush=True)
+            print(f"  FAIL State [{ds},{q},{sz}]: no loss values in {metrics_path}", flush=True)
             fail += 1
     print(f"State: {ok} succeeded, {fail} failed", flush=True)
 
