@@ -32,7 +32,11 @@ from sklearn.preprocessing import LabelEncoder
 
 DATA_ROOT = Path('/home/igor/noise_scaling/data')
 SEED = 42
-N_WORKERS = 16
+N_WORKERS = 8
+MAX_SAMPLES = 100_000
+
+REGRESSION_METRICS = ['ridge_mean_r2', 'ridge_mean_mse', 'ridge_mean_mae']
+CLASSIFICATION_METRICS = ['knn_accuracy', 'knn_macro_f1', 'logreg_accuracy', 'logreg_macro_f1']
 
 ALGOS = ['Geneformer', 'PCA', 'RandomProjection', 'SCVI', 'State']
 
@@ -83,12 +87,26 @@ def signal_path(dataset, quality, signal, algorithm):
 
 
 # ---------------------------------------------------------------------------
+# Subsampling helper
+# ---------------------------------------------------------------------------
+def _subsample(*arrays, max_n=MAX_SAMPLES, seed=SEED):
+    """Subsample arrays to at most max_n rows (consistent across arrays)."""
+    n = arrays[0].shape[0]
+    if n <= max_n:
+        return arrays if len(arrays) > 1 else arrays[0]
+    idx = np.random.RandomState(seed).choice(n, max_n, replace=False)
+    out = tuple(a[idx] for a in arrays)
+    return out if len(out) > 1 else out[0]
+
+
+# ---------------------------------------------------------------------------
 # Evaluation functions
 # ---------------------------------------------------------------------------
 def evaluate_shendure(emb_path, sig_path):
     X = pd.read_csv(emb_path).values.astype(np.float64)
     y_raw = pd.read_csv(sig_path).iloc[:, 0].values
     y = LabelEncoder().fit_transform(y_raw)
+    X, y = _subsample(X, y)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=SEED)
 
     knn = KNeighborsClassifier(n_neighbors=5)
@@ -240,39 +258,79 @@ def run_single_eval(args):
 
 
 # ---------------------------------------------------------------------------
+# Identify missing runs
+# ---------------------------------------------------------------------------
+def find_missing_jobs():
+    """Return only jobs where at least one metric file is missing but embeddings exist."""
+    all_jobs = []
+    already_done = 0
+    no_embeddings = 0
+
+    for ds, cfg in EXPECTED.items():
+        metric_names = CLASSIFICATION_METRICS if cfg['task'] == 'classification' else REGRESSION_METRICS
+        for algo, size, quality in product(ALGOS, cfg['sizes'], cfg['qualities']):
+            model_dir = embeddings_dir(ds, size, quality, algo)
+            emb_p = model_dir / 'embeddings.csv'
+            sig_p = signal_path(ds, quality, cfg['signal'], algo)
+
+            # Skip if embeddings or signal don't exist (can't run anyway)
+            if not emb_p.exists() or not sig_p.exists():
+                no_embeddings += 1
+                continue
+
+            # Check if all metric files already exist
+            if all((model_dir / f'{m}.txt').exists() for m in metric_names):
+                already_done += 1
+                continue
+
+            all_jobs.append((ds, algo, size, quality))
+
+    return all_jobs, already_done, no_embeddings
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 if __name__ == '__main__':
-    jobs = []
-    for ds, cfg in EXPECTED.items():
-        for algo, size, quality in product(ALGOS, cfg['sizes'], cfg['qualities']):
-            jobs.append((ds, algo, size, quality))
+    total_expected = sum(
+        len(cfg['sizes']) * len(cfg['qualities']) * len(ALGOS)
+        for cfg in EXPECTED.values()
+    )
 
-    print(f'Total jobs: {len(jobs)}, workers: {N_WORKERS}')
+    jobs, already_done, no_embeddings = find_missing_jobs()
 
-    results = []
-    errors = []
+    print(f'Total expected:    {total_expected}')
+    print(f'Already done:      {already_done}')
+    print(f'No embeddings/sig: {no_embeddings}')
+    print(f'Missing (to run):  {len(jobs)}')
+    print(f'Workers:           {N_WORKERS}')
 
-    with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
-        futures = {executor.submit(run_single_eval, job): job for job in jobs}
-        for future in tqdm(as_completed(futures), total=len(futures), desc='Evaluating'):
-            result = future.result()
-            if result is None:
-                continue
-            if '_error' in result:
-                errors.append(result)
-            else:
-                results.append(result)
+    if not jobs:
+        print('\nNothing to do — all metrics are up to date.')
+    else:
+        results = []
+        errors = []
 
-    df_results = pd.DataFrame(results)
-    print(f'\nCollected {len(df_results)} results, {len(errors)} errors')
-    if errors:
-        print('First errors:')
-        for e in errors[:5]:
-            print(f"  {e['dataset']}/{e['algorithm']}/{e['size']}/{e['quality']}: {e['_error'][:120]}")
+        with ProcessPoolExecutor(max_workers=N_WORKERS) as executor:
+            futures = {executor.submit(run_single_eval, job): job for job in jobs}
+            for future in tqdm(as_completed(futures), total=len(futures), desc='Evaluating'):
+                result = future.result()
+                if result is None:
+                    continue
+                if '_error' in result:
+                    errors.append(result)
+                else:
+                    results.append(result)
 
-    # Completeness table
-    if len(df_results) > 0:
-        pivot = df_results.groupby(['dataset', 'algorithm']).size().unstack(fill_value=0)
-        print('\nResults per dataset x algorithm:')
-        print(pivot)
+        df_results = pd.DataFrame(results)
+        print(f'\nComputed {len(df_results)} results, {len(errors)} errors')
+        if errors:
+            print('First errors:')
+            for e in errors[:5]:
+                print(f"  {e['dataset']}/{e['algorithm']}/{e['size']}/{e['quality']}: {e['_error'][:120]}")
+
+        # Completeness table
+        if len(df_results) > 0:
+            pivot = df_results.groupby(['dataset', 'algorithm']).size().unstack(fill_value=0)
+            print('\nNew results per dataset x algorithm:')
+            print(pivot)

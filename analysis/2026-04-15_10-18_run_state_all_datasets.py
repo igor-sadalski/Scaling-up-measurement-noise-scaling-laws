@@ -7,7 +7,7 @@ Epoch scaling: max_epochs = max(1, 10 * max_dataset_size / size),
 so the largest size per dataset trains for 10 epochs and smaller
 sizes train proportionally longer (with early stopping patience=5).
 
-Order: merfish, larry (50 parallel jobs), then shendure (8 parallel).
+Order: larry, shendure, then merfish.
 """
 
 import sys
@@ -52,13 +52,6 @@ DATASETS = {
     #     "seed": 42,
     #     "jobs_per_gpu": 2,
     # },
-    "merfish": {
-        "sizes": [100, 203, 414, 843, 1716, 3494, 7113, 14480, 29475, 60000],
-        "qualities": [0.027248, 0.0406617, 0.0606789, 0.0905502, 0.1351267, 0.2016475, 0.3009156, 0.4490518, 0.6701133, 1.0],
-        "signal_columns": ["cur_idx", "ng_idx"],
-        "seed": 42,
-        "jobs_per_gpu": 2,
-    },
     "larry": {
         "sizes": [100, 215, 464, 1000, 2154, 4641, 10000, 21544, 46415, 100000],
         "qualities": [0.003876, 0.0071835, 0.0133136, 0.0246748, 0.0457311, 0.0847557, 0.1570821, 0.2911284, 0.5395631, 1.0],
@@ -72,6 +65,13 @@ DATASETS = {
         "signal_columns": ["author_day"],
         "seed": 42,
         "jobs_per_gpu": 1,
+    },
+    "merfish": {
+        "sizes": [100, 203, 414, 843, 1716, 3494, 7113, 14480, 29475, 60000],
+        "qualities": [0.027248, 0.0406617, 0.0606789, 0.0905502, 0.1351267, 0.2016475, 0.3009156, 0.4490518, 0.6701133, 1.0],
+        "signal_columns": ["cur_idx", "ng_idx"],
+        "seed": 42,
+        "jobs_per_gpu": 2,
     },
 }
 

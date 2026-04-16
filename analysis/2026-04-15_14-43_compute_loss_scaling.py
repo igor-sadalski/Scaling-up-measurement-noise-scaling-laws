@@ -10,14 +10,49 @@ from pathlib import Path
 from itertools import product
 from multiprocessing import Process, Queue
 
+# ── Auto-log: tee stdout/stderr to .log file next to this script ─────────
+SCRIPT_PATH = Path(__file__).resolve()
+LOG_PATH = SCRIPT_PATH.with_suffix(".log")
+
+
+class Tee:
+    """Write to both a file and the original stream."""
+    def __init__(self, stream, log_file):
+        self.stream = stream
+        self.log_file = log_file
+
+    def write(self, data):
+        self.stream.write(data)
+        self.log_file.write(data)
+        self.log_file.flush()
+
+    def flush(self):
+        self.stream.flush()
+        self.log_file.flush()
+
+
+_log_fh = open(LOG_PATH, "w")
+sys.stdout = Tee(sys.__stdout__, _log_fh)
+sys.stderr = Tee(sys.__stderr__, _log_fh)
+
+import scaling_laws  # noqa: F401 — activates timestamped print
 import pandas as pd
 
 from scaling_laws.s3_retriever import DATASET_SIZES, DATASET_QUALITIES
+
+print(f"Logging to {LOG_PATH}")
 
 DATA_DIR = Path("/home/igor/noise_scaling/data")
 DATASETS = ["PBMC", "larry", "merfish", "shendure"]
 ALGOS = ["Geneformer", "SCVI", "State"]
 NUM_GPUS = 8
+JOBS_PER_GPU = 1
+NUM_WORKERS = NUM_GPUS * JOBS_PER_GPU
+
+
+def _geneformer_batch_size(dataset: str) -> int:
+    """Pick eval batch size per dataset to avoid OOM on 40 GB GPUs."""
+    return {"shendure": 8, "larry": 32}.get(dataset, 64)
 
 
 def worker_geneformer(gpu_id, jobs, result_queue):
@@ -46,7 +81,7 @@ def worker_geneformer(gpu_id, jobs, result_queue):
 
             eval_args = TrainingArguments(
                 output_dir="/tmp/gf_eval_tmp",
-                per_device_eval_batch_size=100,
+                per_device_eval_batch_size=_geneformer_batch_size(ds),
                 do_eval=True,
                 report_to="none",
             )
@@ -57,6 +92,7 @@ def worker_geneformer(gpu_id, jobs, result_queue):
             )
             metrics = trainer.evaluate()
             loss_path.write_text(f"{metrics['eval_loss']:.6f}")
+            print(f"  OK   GPU{gpu_id} Geneformer {ds}/{sz}/{q}: loss={metrics['eval_loss']:.6f}", flush=True)
             done += 1
             del model, trainer
             torch.cuda.empty_cache()
@@ -87,6 +123,7 @@ def worker_scvi(gpu_id, jobs, result_queue):
             vae = scvi_lib.model.SCVI.load(dir_path=model_path, adata=adata_test)
             elbo = vae.get_elbo(adata_test)
             loss_path.write_text(f"{elbo:.6f}")
+            print(f"  OK   GPU{gpu_id} SCVI {ds}/{sz}/{q}: elbo={elbo:.6f}", flush=True)
             done += 1
             del vae
             torch.cuda.empty_cache()
@@ -98,7 +135,53 @@ def worker_scvi(gpu_id, jobs, result_queue):
     result_queue.put(("SCVI", gpu_id, done, fail))
 
 
-# ── Step 1: Scan ─────────────────────────────────────────────────────────
+def find_state_metrics_csv(model_dir: Path):
+    """Return the path to STATE's metrics.csv, or None if not found.
+
+    Two possible layouts:
+      1. model/loss/metrics.csv            (newer runs)
+      2. model/checkpoints/<run>/version_0/metrics.csv  (PyTorch Lightning default)
+
+    Only returns a path if the CSV actually has loss data (not just
+    step + learning_rate from a crashed early run).
+    """
+    candidates = []
+    p = model_dir / "loss" / "metrics.csv"
+    if p.exists():
+        candidates.append(p)
+    ckpt_dir = model_dir / "checkpoints"
+    if ckpt_dir.exists():
+        candidates.extend(ckpt_dir.glob("*/version_0/metrics.csv"))
+
+    for csv_path in candidates:
+        try:
+            header = csv_path.read_text().split("\n", 1)[0]
+            if "val_loss" in header or "train_loss" in header:
+                return csv_path
+        except Exception:
+            continue
+    return None
+
+
+def read_state_loss(metrics_path: Path) -> float | None:
+    """Read best loss from a STATE metrics CSV.
+
+    Tries validation/val_loss first, falls back to trainer/train_loss.
+    Returns None if no valid loss found.
+    """
+    try:
+        df = pd.read_csv(metrics_path)
+    except Exception:
+        return None
+    for col in ("validation/val_loss", "trainer/train_loss"):
+        if col in df.columns:
+            vals = df[col].dropna()
+            if not vals.empty:
+                return float(vals.min())
+    return None
+
+
+# ── Step 1: Scan & completeness table ────────────────────────────────────
 print("Scanning ...", flush=True)
 scan = []
 for ds in DATASETS:
@@ -110,20 +193,36 @@ for ds in DATASETS:
         elif algo == "SCVI":
             has_model = (base / "model.pt").exists()
         elif algo == "State":
-            has_model = (base / "loss" / "metrics.csv").exists()
+            has_model = find_state_metrics_csv(base) is not None
         has_loss = (base / "test_loss.txt").exists()
         scan.append({"dataset": ds, "size": sz, "quality": q, "algorithm": algo,
                       "has_model": has_model, "has_loss": has_loss})
 
 df_scan = pd.DataFrame(scan)
-summary = df_scan.groupby(["dataset", "algorithm"]).agg(
-    models=("has_model", "sum"), losses=("has_loss", "sum"), total=("has_model", "count"),
+
+# Completeness table: found / expected / missing per dataset x algorithm
+pivot = df_scan.groupby(["dataset", "algorithm"]).agg(
+    has_model=("has_model", "sum"),
+    has_loss=("has_loss", "sum"),
+    expected=("has_model", "count"),
 ).reset_index()
-summary["missing"] = summary["models"] - summary["losses"]
-print(summary.to_string(index=False), flush=True)
+pivot["missing_loss"] = pivot["has_model"] - pivot["has_loss"]
+
+print("\n── Completeness (has_model / has_loss / expected / to_compute) ──", flush=True)
+for ds in DATASETS:
+    ds_rows = pivot[pivot["dataset"] == ds]
+    parts = []
+    for _, r in ds_rows.iterrows():
+        parts.append(f"  {r['algorithm']:>12s}: model={int(r['has_model']):3d}  "
+                     f"loss={int(r['has_loss']):3d}  "
+                     f"expected={int(r['expected']):3d}  "
+                     f"to_compute={int(r['missing_loss']):3d}")
+    print(f"\n{ds}:", flush=True)
+    for p in parts:
+        print(p, flush=True)
 
 missing = df_scan[(df_scan["has_model"]) & (~df_scan["has_loss"])]
-print(f"\nTotal missing: {len(missing)}", flush=True)
+print(f"\nTotal jobs to compute: {len(missing)}", flush=True)
 if len(missing) == 0:
     print("Nothing to do!")
     sys.exit(0)
@@ -132,34 +231,42 @@ if len(missing) == 0:
 state_missing = missing[missing["algorithm"] == "State"]
 if len(state_missing) > 0:
     print(f"\nSTATE: {len(state_missing)} missing", flush=True)
+    ok, fail = 0, 0
     for _, row in state_missing.iterrows():
         ds, sz, q = row["dataset"], row["size"], row["quality"]
-        metrics_path = DATA_DIR / ds / str(sz) / str(q) / "results" / "State" / "model" / "loss" / "metrics.csv"
-        loss_path = DATA_DIR / ds / str(sz) / str(q) / "results" / "State" / "model" / "test_loss.txt"
-        try:
-            df = pd.read_csv(metrics_path)
-            val = df["validation/val_loss"].dropna()
-            if not val.empty:
-                loss_path.parent.mkdir(parents=True, exist_ok=True)
-                loss_path.write_text(f"{float(val.min()):.6f}")
-        except Exception as e:
-            print(f"  FAIL State {ds}/{sz}/{q}: {e}", flush=True)
+        model_dir = DATA_DIR / ds / str(sz) / str(q) / "results" / "State" / "model"
+        metrics_path = find_state_metrics_csv(model_dir)
+        loss_path = model_dir / "test_loss.txt"
+        if metrics_path is None:
+            print(f"  SKIP State {ds}/{sz}/{q}: no valid metrics CSV", flush=True)
+            fail += 1
+            continue
+        loss_val = read_state_loss(metrics_path)
+        if loss_val is not None:
+            loss_path.parent.mkdir(parents=True, exist_ok=True)
+            loss_path.write_text(f"{loss_val:.6f}")
+            print(f"  OK   State {ds}/{sz}/{q}: loss={loss_val:.6f}", flush=True)
+            ok += 1
+        else:
+            print(f"  FAIL State {ds}/{sz}/{q}: no loss values in {metrics_path}", flush=True)
+            fail += 1
+    print(f"State: {ok} succeeded, {fail} failed", flush=True)
 
-# ── Step 3: Geneformer — 8 GPU workers ───────────────────────────────────
+# ── Step 3: Geneformer — GPU workers (JOBS_PER_GPU per GPU) ─────────────
 gf_jobs = [(r["dataset"], r["size"], r["quality"])
            for _, r in missing[missing["algorithm"] == "Geneformer"].iterrows()]
 if gf_jobs:
-    print(f"\nGeneformer: {len(gf_jobs)} missing → {NUM_GPUS} GPU workers", flush=True)
-    # Split jobs across GPUs
-    chunks = [[] for _ in range(NUM_GPUS)]
+    print(f"\nGeneformer: {len(gf_jobs)} missing → {NUM_WORKERS} workers ({JOBS_PER_GPU}/gpu)", flush=True)
+    chunks = [[] for _ in range(NUM_WORKERS)]
     for i, job in enumerate(gf_jobs):
-        chunks[i % NUM_GPUS].append(job)
+        chunks[i % NUM_WORKERS].append(job)
 
     result_q = Queue()
     procs = []
-    for gpu_id in range(NUM_GPUS):
-        if chunks[gpu_id]:
-            p = Process(target=worker_geneformer, args=(gpu_id, chunks[gpu_id], result_q))
+    for worker_id in range(NUM_WORKERS):
+        if chunks[worker_id]:
+            gpu_id = worker_id % NUM_GPUS
+            p = Process(target=worker_geneformer, args=(gpu_id, chunks[worker_id], result_q))
             p.start()
             procs.append(p)
 
@@ -173,20 +280,21 @@ if gf_jobs:
         total_fail += f
     print(f"Geneformer: {total_done} succeeded, {total_fail} failed", flush=True)
 
-# ── Step 4: SCVI — 8 GPU workers ─────────────────────────────────────────
+# ── Step 4: SCVI — GPU workers (JOBS_PER_GPU per GPU) ────────────────────
 scvi_jobs = [(r["dataset"], r["size"], r["quality"])
              for _, r in missing[missing["algorithm"] == "SCVI"].iterrows()]
 if scvi_jobs:
-    print(f"\nSCVI: {len(scvi_jobs)} missing → {NUM_GPUS} GPU workers", flush=True)
-    chunks = [[] for _ in range(NUM_GPUS)]
+    print(f"\nSCVI: {len(scvi_jobs)} missing → {NUM_WORKERS} workers ({JOBS_PER_GPU}/gpu)", flush=True)
+    chunks = [[] for _ in range(NUM_WORKERS)]
     for i, job in enumerate(scvi_jobs):
-        chunks[i % NUM_GPUS].append(job)
+        chunks[i % NUM_WORKERS].append(job)
 
     result_q = Queue()
     procs = []
-    for gpu_id in range(NUM_GPUS):
-        if chunks[gpu_id]:
-            p = Process(target=worker_scvi, args=(gpu_id, chunks[gpu_id], result_q))
+    for worker_id in range(NUM_WORKERS):
+        if chunks[worker_id]:
+            gpu_id = worker_id % NUM_GPUS
+            p = Process(target=worker_scvi, args=(gpu_id, chunks[worker_id], result_q))
             p.start()
             procs.append(p)
 
