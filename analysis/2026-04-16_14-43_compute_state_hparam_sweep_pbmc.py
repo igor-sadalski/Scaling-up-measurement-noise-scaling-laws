@@ -1,0 +1,535 @@
+"""STATE hyperparameter sweep on PBMC (size x quality grid).
+
+Architecture is held fixed at STATE defaults (emsize=256, d_hid=512, nhead=4,
+nlayers=3, output_dim=256). Only regularization/optimization knobs are swept.
+N_TRIALS x |SIZES| x |QUALITIES| runs.
+
+Tunable parameters (sweep):
+    dropout, batch_size, max_lr, weight_decay
+
+Fixed architecture (FIXED_ARCH):
+    emsize, d_hid, nhead, nlayers, output_dim, pad_length
+
+Other fixed (use state-defaults.yaml values; not swept):
+    - OPTIMIZER_STEPS hard-caps total gradient steps per trial (no early stopping)
+    - model feature flags (use_flash_attention, rda, counts, dataset_correction,
+      ema/ema_decay/ema_update_interval, sample_rda, batch_tabular_loss,
+      num_downsample, variable_masking)
+    - task.mask
+    - optimizer.{start, end, max_grad_norm, gradient_accumulation_steps,
+      reset_lr_on_restart, zclip}
+
+Parallelism: 2 jobs per GPU across all visible GPUs.
+
+Outputs:
+    /home/igor/noise_scaling/data/other/hp_tunning/
+        sweep_results.csv       # full results table
+        hp_trial_XX.yaml        # per-config YAML with params + per-size results
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import random
+import shutil
+import subprocess
+import sys
+import time
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+from tqdm.auto import tqdm
+
+# ── Auto-log: tee stdout/stderr to .log file next to this script ─────────
+SCRIPT_PATH = Path(__file__).resolve()
+LOG_PATH = SCRIPT_PATH.with_suffix(".log")
+
+
+class Tee:
+    def __init__(self, stream, log_file):
+        self.stream = stream
+        self.log_file = log_file
+
+    def write(self, data):
+        self.stream.write(data)
+        self.log_file.write(data)
+        self.log_file.flush()
+
+    def flush(self):
+        self.stream.flush()
+        self.log_file.flush()
+
+
+_log_f = open(LOG_PATH, "w")
+sys.stdout = Tee(sys.__stdout__, _log_f)
+sys.stderr = Tee(sys.__stderr__, _log_f)
+print(f"Logging to {LOG_PATH}")
+
+
+# ── Configuration ───────────────────────────────────────────────────────
+DATASET = "PBMC"
+SIZES = [100000]  # largest size only
+QUALITIES = [
+    0.0012346,
+    0.0025982,
+    0.0054682,
+    0.0115083,
+    0.02422,
+    0.050973,
+    0.1072766,
+    0.225772,
+    0.4751547,
+    1.0,
+]
+DATA_DIR = Path("/home/igor/noise_scaling/data")
+# All per-trial artifacts (checkpoints, embeddings, loss curves, MI results)
+# live under OUTPUT_DIR/<trial_name>/, independent of DATA_DIR.
+OUTPUT_DIR = Path("/home/igor/noise_scaling/data/other/hp_tunning")
+
+N_TRIALS = 16
+JOBS_PER_GPU = 1  # 1/GPU on 40GB A100s — STATE's 109M pe_embedding makes 2/GPU OOM
+SEED = 42
+# Hard cap on total optimizer (gradient) steps per trial. Wired via STATE's
+# profiler path so Lightning's trainer.max_steps is honored, and validation +
+# checkpointing fire at the final step so test_loss.txt / best.ckpt are written.
+OPTIMIZER_STEPS = 10
+
+
+# ── Search spaces ─────────────────────────────────────────────────────
+# Every parameter from state-defaults.yaml model/task/optimizer sections.
+# Format: (sampling_kind, *args)
+
+# Architecture held fixed at STATE defaults (see scaling_laws algo/state.py).
+FIXED_ARCH = {
+    "emsize":     256,
+    "d_hid":      512,
+    "nhead":      4,
+    "nlayers":    3,
+    "output_dim": 256,
+    "pad_length": 2048,
+}
+
+SEARCH_SPACE = {
+    # Regularization
+    "dropout":      ("choice", [0.0, 0.1, 0.2, 0.3]),
+    "batch_size":   ("choice", [32, 64, 128]),
+    # Optimizer
+    "max_lr":       ("choice", [1e-4, 5e-4, 1e-3, 5e-3]),
+    "weight_decay": ("choice", [1e-4, 1e-3, 1e-2, 1e-1]),
+}
+
+
+def sample_config(rng: random.Random) -> dict:
+    """Sample one hyperparameter configuration from SEARCH_SPACE."""
+    cfg = {}
+    for name, spec in SEARCH_SPACE.items():
+        kind = spec[0]
+        if kind == "choice":
+            cfg[name] = rng.choice(spec[1])
+        else:
+            raise ValueError(kind)
+    return cfg
+
+
+def generate_trials(n: int, seed: int) -> list[dict]:
+    rng = random.Random(seed)
+    trials = []
+    for i in range(n):
+        cfg = sample_config(rng)
+        cfg["trial_id"] = i
+        cfg["trial_name"] = f"hp_trial_{i:02d}"
+        trials.append(cfg)
+    return trials
+
+
+# ── Per-trial runner (executed in a subprocess) ─────────────────────────
+
+def run_trial(trial: dict, device: int) -> dict:
+    """Train STATE with `trial` hyperparameters on `device`.
+
+    The trial dict must contain 'size' and 'quality' keys; base_dir is
+    derived from them. Total gradient steps are hard-capped by OPTIMIZER_STEPS.
+
+    Runs in its own subprocess so that the worker GPU and env are isolated.
+    Each trial writes into its own OUTPUT_DIR/<trial_name>/ directory.
+
+    Returns dict with trial config + metrics (best_val_loss, etc.).
+    """
+    # Imports are done inside the worker to avoid CUDA init in the parent.
+    sys.path.insert(
+        0,
+        "/home/igor/noise_scaling/modeling/Scaling-up-measurement-noise-scaling-laws/scaling_laws/src",
+    )
+    from scaling_laws.algo.state import State
+
+    trial_name = trial["trial_name"]
+    subpath = trial["subpath"]
+    size = trial["size"]
+    quality = trial["quality"]
+    base_dir = DATA_DIR / DATASET / str(size) / str(quality)
+
+    class TunableState(State):
+        """State variant that exposes ALL model/task/optimizer params as
+        Hydra overrides.  Each trial writes to its own results/State/<model_name>/."""
+
+        def __init__(self, model_name: str = "model", subpath: str | None = None,
+                     extra_hparams: dict | None = None, **kw):
+            super().__init__(**kw)
+            # Re-route every artifact to OUTPUT_DIR/<subpath>/ so models live
+            # in nested folders (hp_trial_NN/szSIZE/qQUALITY/), not under
+            # DATA_DIR/PBMC/.../results. `model_name` stays flat so it can be
+            # used as Lightning's experiment.name / log subdir.
+            #
+            # IMPORTANT: BaseAlgorithm.mutual_information builds its output
+            # path as `self.save_folder_path / self.model_path.name / "MI" / ...`,
+            # which assumes model_path is one level under save_folder_path.
+            # We preserve that invariant by setting save_folder_path to the
+            # PARENT of the nested model_path; that way MI lands at
+            # OUTPUT_DIR/<subpath>/MI/<seed>/<signal>/ (correct), not at
+            # OUTPUT_DIR/<last-segment>/MI/... (which would flatten + collide).
+            self.model_name = model_name
+            self.subpath = subpath if subpath is not None else model_name
+            self.model_path = OUTPUT_DIR / self.subpath
+            self.model_path.mkdir(parents=True, exist_ok=True)
+            self.save_folder_path = self.model_path.parent
+            self.embeddings_path = self.model_path / "embeddings.csv"
+            self.test_loss_path = self.model_path / "test_loss.txt"
+            self.checkpoint_dir = self.model_path / "checkpoints"
+            # Extra hparams not covered by State's constructor
+            self.hp = extra_hparams or {}
+
+        def _bool(self, v) -> str:
+            return "true" if v else "false"
+
+        def train(self) -> None:
+            import anndata as ad, shutil
+            self._check_preprocessed()
+            self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            for item in self.checkpoint_dir.iterdir():
+                shutil.rmtree(item) if item.is_dir() else item.unlink()
+
+            env = self._get_env()
+            train_h5ad = self.train_data_path / "preprocessed.h5ad"
+            adata = ad.read_h5ad(train_h5ad, backed="r")
+            num_cells = int(adata.shape[0])
+            print(f"  [{self.model_name}] {num_cells} cells, cap={OPTIMIZER_STEPS} optimizer steps")
+
+            # Overrides: swept hyperparameters + operational knobs (per-trial
+            # paths, the per-worker port, sweep-specific default flips).
+            # The OPTIMIZER_STEPS cap is wired via STATE's profiler path,
+            # which is the only place trainer.max_steps gets set in
+            # state/emb/train/trainer.py.  val_check_interval and
+            # every_n_train_steps are aligned with the cap so validation +
+            # checkpointing fire on the final step.
+            hp = self.hp
+            cmd_fit = [
+                str(self.state_python), "-m", "state", "emb", "fit",
+                "--conf", str(self.config_path),
+                f"embeddings.current={self.profile_name}",
+                f"dataset.current={self.profile_name}",
+                f"dataset.num_cells={num_cells}",
+                # Swept hyperparameters
+                f"model.batch_size={self.batch_size}",
+                f"model.emsize={self.emsize}",
+                f"model.d_hid={self.d_hid}",
+                f"model.nhead={self.nhead}",
+                f"model.nlayers={self.nlayers}",
+                f"model.output_dim={self.output_dim}",
+                f"model.dropout={self.dropout}",
+                f"optimizer.max_lr={self.max_lr}",
+                f"optimizer.weight_decay={hp.get('weight_decay', 0.01)}",
+                # Experiment bookkeeping
+                f"experiment.name=state_{self.profile_name}_{self.model_name}",
+                f"experiment.port={self._get_unique_port()}",
+                f"experiment.checkpoint.path={self.checkpoint_dir}",
+                # Hard cap on total gradient steps (via profiler path).
+                # profile_steps must have >=2 elements: callbacks.py indexes
+                # [0] (start NSys range) and [1] (stop NSys range).
+                "experiment.profile.enable_profiler=true",
+                f"experiment.profile.max_steps={OPTIMIZER_STEPS}",
+                f"experiment.profile.profile_steps=[0,{OPTIMIZER_STEPS}]",
+                f"experiment.val_check_interval={OPTIMIZER_STEPS}",
+                "experiment.limit_val_batches=1",
+                f"experiment.checkpoint.every_n_train_steps={OPTIMIZER_STEPS}",
+                # Keep only the single best checkpoint (by val loss); no last.ckpt.
+                "experiment.checkpoint.save_top_k=1",
+                "experiment.checkpoint.monitor=validation/val_loss",
+                "+experiment.checkpoint.save_last=false",
+                # Defaults we must flip for the sweep
+                "experiment.early_stopping.enable=false",
+                "wandb.enable=false",
+                "validations.diff_exp.enable=false",
+                "validations.perturbation.enable=false",
+            ]
+            subprocess.run(cmd_fit, cwd=str(self.state_package_dir), env=env, check=True)
+
+    # Persist the full per-trial config to its own JSON in the trial folder,
+    # before training starts (so it survives crashes).
+    trial_dir = OUTPUT_DIR / subpath
+    trial_dir.mkdir(parents=True, exist_ok=True)
+    config_doc = {
+        "trial_id": int(trial["trial_id"]),
+        "trial_name": trial_name,
+        "subpath": subpath,
+        "dataset": DATASET,
+        "size": int(size),
+        "quality": float(quality),
+        "device": int(device),
+        "seed": SEED,
+        "optimizer_steps": OPTIMIZER_STEPS,
+        "swept_params": {k: trial[k] for k in SEARCH_SPACE if k in trial},
+        "fixed_arch": FIXED_ARCH,
+    }
+    config_json_path = trial_dir / "config.json"
+    config_json_path.write_text(json.dumps(config_doc, indent=2, default=str))
+    print(f"[{trial_name}] config -> {config_json_path}", flush=True)
+
+    t0 = time.time()
+    result = {
+        **trial,
+        "device": device,
+        "status": "pending",
+        "train_time_s": float("nan"),
+        "error": "",
+    }
+
+    try:
+        # Separate params into State constructor args vs extra Hydra overrides
+        extra_hparams = {
+            k: trial[k] for k in trial
+            if k not in ("trial_id", "trial_name", "subpath", "size", "quality",
+                         "dropout", "batch_size", "max_lr")
+        }
+        print(f"[{trial_name}] phase=construct  base_dir={base_dir}", flush=True)
+        model = TunableState(
+            base_dir=str(base_dir),
+            device=device,
+            dataset_name=DATASET,
+            seed=SEED,
+            model_name=trial_name,
+            subpath=subpath,
+            max_lr=trial["max_lr"],
+            dropout=trial["dropout"],
+            batch_size=trial["batch_size"],
+            extra_hparams=extra_hparams,
+            **FIXED_ARCH,
+        )
+
+        t_phase = time.time()
+        print(f"[{trial_name}] phase=train START  GPU={device}  out={model.model_path}", flush=True)
+        model.train()
+        print(f"[{trial_name}] phase=train DONE   t={time.time()-t_phase:.0f}s", flush=True)
+
+        t_phase = time.time()
+        print(f"[{trial_name}] phase=embed START  -> {model.embeddings_path}", flush=True)
+        model.embed()
+        print(f"[{trial_name}] phase=embed DONE   t={time.time()-t_phase:.0f}s", flush=True)
+
+        t_phase = time.time()
+        print(f"[{trial_name}] phase=mi    START  out={model.model_path / 'MI'}", flush=True)
+        mi_results = model.mutual_information()
+        for signal_name, mi_val in mi_results.items():
+            col = signal_name.replace(".csv", "")
+            result[f"mi_{col}"] = float(mi_val)
+            print(f"[{trial_name}]   mi[{col}] = {mi_val:.4f}", flush=True)
+        print(f"[{trial_name}] phase=mi    DONE   t={time.time()-t_phase:.0f}s", flush=True)
+
+        result["status"] = "ok"
+    except Exception as e:
+        result["status"] = "error"
+        result["error"] = f"{type(e).__name__}: {e}"
+        print(f"[{trial_name}] FAILED on GPU {device}: {result['error']}", flush=True)
+    finally:
+        result["train_time_s"] = time.time() - t0
+        # Persist the result alongside config.json so each trial folder is
+        # self-describing (config + outcome) without needing the global CSV.
+        result_doc = {k: (None if isinstance(v, float) and np.isnan(v) else v)
+                      for k, v in result.items()}
+        (trial_dir / "result.json").write_text(json.dumps(result_doc, indent=2, default=str))
+        print(f"[{trial_name}] result -> {trial_dir / 'result.json'}  status={result['status']}", flush=True)
+
+    return result
+
+
+# ── Orchestrator ────────────────────────────────────────────────────────
+
+def detect_gpus() -> list[int]:
+    """Detect visible GPU indices via nvidia-smi (mirrors Experiments._detect_gpus)."""
+    out = subprocess.run(
+        ["nvidia-smi", "--query-gpu=index", "--format=csv,noheader"],
+        capture_output=True, text=True, check=True,
+    ).stdout
+    return [int(line.strip()) for line in out.splitlines() if line.strip()]
+
+
+def main():
+    # Verify preprocessed profiles exist for all size x quality combos
+    for size in SIZES:
+        for quality in QUALITIES:
+            quality_str = str(quality)
+            base_dir = DATA_DIR / DATASET / str(size) / quality_str
+            assert base_dir.exists(), f"Base dir missing: {base_dir}"
+            profile_name = f"scaling_PBMC_{size}_{quality_str}".replace(".", "_")
+            profile = base_dir / "preprocessed" / "state_data" / f"all_embeddings_{profile_name}.pt"
+            assert profile.exists(), f"STATE profile missing: {profile}. Run prepare_state_data() first."
+    print(f"All {len(SIZES)} sizes x {len(QUALITIES)} qualities verified.")
+
+    gpus = detect_gpus()
+    slots = gpus * JOBS_PER_GPU
+    max_workers = len(slots)
+    print(f"GPUs={gpus}  jobs_per_gpu={JOBS_PER_GPU}  slots={max_workers}")
+
+    hp_configs = generate_trials(N_TRIALS, seed=SEED)
+    print(f"Generated {len(hp_configs)} HP configs:")
+    for t in hp_configs:
+        print(f"  {t['trial_name']}: " + json.dumps({k: v for k, v in t.items() if k not in ('trial_id','trial_name')}))
+
+    # Cross product: each HP config x each size x each quality.
+    # `trial_name` is flat (used as Lightning's experiment.name and in logs);
+    # `subpath` is the nested filesystem layout (hp_trial_NN/szSIZE/qQUAL).
+    jobs = []
+    for cfg in hp_configs:
+        for size in SIZES:
+            for quality in QUALITIES:
+                job = {**cfg}
+                job["size"] = size
+                job["quality"] = quality
+                q_tag = str(quality).replace(".", "_")
+                tid_tag = f"hp_trial_{cfg['trial_id']:02d}"
+                sz_tag = f"sz{size}"
+                q_tag_full = f"q{q_tag}"
+                job["trial_name"] = f"{tid_tag}_{sz_tag}_{q_tag_full}"
+                job["subpath"] = f"{tid_tag}/{sz_tag}/{q_tag_full}"
+                jobs.append(job)
+    random.Random(SEED).shuffle(jobs)
+
+    total_jobs = len(jobs)
+    print(f"\nTotal jobs: {len(hp_configs)} configs x {len(SIZES)} sizes x "
+          f"{len(QUALITIES)} qualities = {total_jobs}  "
+          f"(optimizer_steps={OPTIMIZER_STEPS} per trial)")
+    # Per-trial config.json is written by run_trial into each trial's folder.
+
+    # Save results to dedicated output dir
+    output_dir = OUTPUT_DIR
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    free_slots = list(slots)
+    results: list[dict] = []
+    pending = list(jobs)
+
+    with ProcessPoolExecutor(max_workers=max_workers) as ex:
+        futures = {}
+
+        # Seed workers
+        while pending and free_slots:
+            trial = pending.pop(0)
+            device = free_slots.pop(0)
+            fut = ex.submit(run_trial, trial, device)
+            futures[fut] = (trial, device)
+            print(f"Submitted {trial['trial_name']} on GPU {device}")
+
+        pbar = tqdm(total=total_jobs, desc="trials", unit="trial",
+                    dynamic_ncols=True, smoothing=0.1)
+        n_ok = n_err = 0
+        while futures:
+            done_fut = next(as_completed(futures))
+            trial, device = futures.pop(done_fut)
+            try:
+                res = done_fut.result()
+            except Exception as e:
+                res = {**trial, "device": device, "status": "error",
+                       "train_time_s": float("nan"),
+                       "error": f"{type(e).__name__}: {e}"}
+            if res["status"] == "ok":
+                n_ok += 1
+            else:
+                n_err += 1
+            mi_str = " ".join(f"{k}={v:.3f}" for k, v in res.items()
+                              if k.startswith("mi_") and not np.isnan(v))
+            pbar.set_postfix(ok=n_ok, err=n_err, last=res['trial_name'][:32], refresh=False)
+            pbar.update(1)
+            pbar.write(f"  Finished {res['trial_name']} status={res['status']} "
+                       f"{mi_str} t={res['train_time_s']:.0f}s")
+            results.append(res)
+            free_slots.append(device)
+
+            if pending and free_slots:
+                trial = pending.pop(0)
+                device = free_slots.pop(0)
+                fut = ex.submit(run_trial, trial, device)
+                futures[fut] = (trial, device)
+                pbar.write(f"  Submitted {trial['trial_name']} on GPU {device}")
+        pbar.close()
+
+    df = pd.DataFrame(results).sort_values(["trial_id", "size", "quality"]).reset_index(drop=True)
+
+    # Save full results CSV
+    out_csv = output_dir / "sweep_results.csv"
+    df.to_csv(out_csv, index=False)
+    print(f"\nResults -> {out_csv}")
+
+    # Save each HP config as a YAML file with its per-size val losses
+    import yaml
+    for trial_id in sorted(df["trial_id"].unique()):
+        sub = df[df["trial_id"] == trial_id]
+        row0 = sub.iloc[0]
+        # Build config from all sweep params
+        config = {"trial_id": int(trial_id), "pad_length": 2048}
+        for param_name in SEARCH_SPACE:
+            if param_name in row0.index:
+                val = row0[param_name]
+                if isinstance(val, (np.integer,)):
+                    val = int(val)
+                elif isinstance(val, (np.floating,)):
+                    val = float(val)
+                elif isinstance(val, (np.bool_,)):
+                    val = bool(val)
+                config[param_name] = val
+        # Detect MI columns dynamically from the dataframe
+        mi_cols = [c for c in sub.columns if c.startswith("mi_")]
+
+        per_size_quality: dict = {}
+        for _, r in sub.iterrows():
+            entry = {
+                "optimizer_steps": OPTIMIZER_STEPS,
+                "status": r["status"],
+                "train_time_s": round(float(r["train_time_s"]), 1),
+            }
+            if mi_cols:
+                entry["mi"] = {
+                    c.removeprefix("mi_"): round(float(r[c]), 5)
+                    for c in mi_cols if pd.notna(r.get(c))
+                }
+            size_key = int(r["size"])
+            quality_key = float(r["quality"])
+            per_size_quality.setdefault(size_key, {})[quality_key] = entry
+        trial_doc = {"config": config, "results_per_size_quality": per_size_quality}
+        yaml_path = output_dir / f"hp_trial_{int(trial_id):02d}.yaml"
+        with open(yaml_path, "w") as f:
+            yaml.dump(trial_doc, f, default_flow_style=False, sort_keys=False)
+    print(f"Per-trial YAML configs -> {output_dir}/hp_trial_*.yaml")
+
+    # Print summary: mean MI across sizes x qualities per trial
+    ok_df = df[df["status"] == "ok"]
+    mi_cols = [c for c in ok_df.columns if c.startswith("mi_")]
+    if not mi_cols:
+        print("\nNo MI columns to summarize.")
+        return
+    agg_cols = {c: "mean" for c in mi_cols}
+    primary_mi = mi_cols[0]
+    summary = ok_df.groupby("trial_id").agg(agg_cols).sort_values(primary_mi, ascending=False)
+
+    print(f"\nMean MI across sizes x qualities (sorted by {primary_mi}, higher=better):")
+    for trial_id, row in summary.iterrows():
+        row0 = df[df["trial_id"] == trial_id].iloc[0]
+        mi_str = " ".join(f"{c}={row[c]:.3f}" for c in mi_cols if pd.notna(row[c]))
+        print(f"  trial_{int(trial_id):02d}: {mi_str}  "
+              f"(lr={row0['max_lr']:.2e} bs={int(row0['batch_size'])} "
+              f"do={row0['dropout']:.2f} wd={row0['weight_decay']:.2e})")
+
+
+if __name__ == "__main__":
+    main()

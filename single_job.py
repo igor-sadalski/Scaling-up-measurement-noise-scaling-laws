@@ -68,6 +68,12 @@ parser.add_argument(
     help="Early stopping patience",
 )
 parser.add_argument(
+    "--max_steps",
+    type=int,
+    default=None,
+    help="Fixed training step budget (State only). Overrides max_epochs and disables early stopping.",
+)
+parser.add_argument(
     "--dataset",
     type=str,
     # required=True,
@@ -141,6 +147,7 @@ experiments.single_job(
     algo=args.algos[0],
     max_epochs=args.max_epochs,
     early_stopping_patience=args.early_stopping_patience,
+    max_steps=args.max_steps,
     device=args.device,
     retrain=args.retrain,
     reembed=args.reembed,
