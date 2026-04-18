@@ -29,8 +29,9 @@ Outputs:
 
 from __future__ import annotations
 
+import atexit
+import itertools
 import json
-import os
 import random
 import shutil
 import subprocess
@@ -41,6 +42,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 from tqdm.auto import tqdm
 
 # ── Auto-log: tee stdout/stderr to .log file next to this script ─────────
@@ -64,6 +66,7 @@ class Tee:
 
 
 _log_f = open(LOG_PATH, "w")
+atexit.register(_log_f.close)
 sys.stdout = Tee(sys.__stdout__, _log_f)
 sys.stderr = Tee(sys.__stderr__, _log_f)
 print(f"Logging to {LOG_PATH}")
@@ -90,6 +93,9 @@ DATA_DIR = Path("/home/igor/noise_scaling/data")
 OUTPUT_DIR = Path("/home/igor/noise_scaling/data/other/hp_tunning")
 
 N_TRIALS = 16
+# Prefix for trial folder/yaml/log names. Change e.g. to "model_sizing" to
+# generate `model_sizing_00/sz100000/qQUAL/` and `model_sizing_00.yaml`.
+TRIAL_PREFIX = "hp_trial"
 JOBS_PER_GPU = 1  # 1/GPU on 40GB A100s — STATE's 109M pe_embedding makes 2/GPU OOM
 SEED = 42
 # Hard cap on total optimizer (gradient) steps per trial. Wired via STATE's
@@ -122,27 +128,24 @@ SEARCH_SPACE = {
 }
 
 
-def sample_config(rng: random.Random) -> dict:
-    """Sample one hyperparameter configuration from SEARCH_SPACE."""
-    cfg = {}
-    for name, spec in SEARCH_SPACE.items():
-        kind = spec[0]
-        if kind == "choice":
-            cfg[name] = rng.choice(spec[1])
-        else:
-            raise ValueError(kind)
-    return cfg
-
-
 def generate_trials(n: int, seed: int) -> list[dict]:
-    rng = random.Random(seed)
-    trials = []
-    for i in range(n):
-        cfg = sample_config(rng)
-        cfg["trial_id"] = i
-        cfg["trial_name"] = f"hp_trial_{i:02d}"
-        trials.append(cfg)
-    return trials
+    """Sample n distinct HP configurations without replacement from SEARCH_SPACE.
+
+    Enumerates the full Cartesian product of the discrete `choice` spaces and
+    draws `n` unique points, so no two trials duplicate the same config.
+    """
+    names = list(SEARCH_SPACE)
+    for name, spec in SEARCH_SPACE.items():
+        if spec[0] != "choice":
+            raise ValueError(f"{name}: unsupported sampling kind {spec[0]!r}")
+    grid = list(itertools.product(*(SEARCH_SPACE[name][1] for name in names)))
+    if n > len(grid):
+        raise ValueError(f"N_TRIALS={n} exceeds grid size {len(grid)}")
+    picks = random.Random(seed).sample(grid, n)
+    return [
+        {"trial_id": i, **dict(zip(names, pick))}
+        for i, pick in enumerate(picks)
+    ]
 
 
 # ── Per-trial runner (executed in a subprocess) ─────────────────────────
@@ -205,7 +208,7 @@ def run_trial(trial: dict, device: int) -> dict:
             return "true" if v else "false"
 
         def train(self) -> None:
-            import anndata as ad, shutil
+            import anndata as ad
             self._check_preprocessed()
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
             for item in self.checkpoint_dir.iterdir():
@@ -385,11 +388,11 @@ def main():
     hp_configs = generate_trials(N_TRIALS, seed=SEED)
     print(f"Generated {len(hp_configs)} HP configs:")
     for t in hp_configs:
-        print(f"  {t['trial_name']}: " + json.dumps({k: v for k, v in t.items() if k not in ('trial_id','trial_name')}))
+        print(f"  {TRIAL_PREFIX}_{t['trial_id']:02d}: " + json.dumps({k: v for k, v in t.items() if k != 'trial_id'}))
 
     # Cross product: each HP config x each size x each quality.
     # `trial_name` is flat (used as Lightning's experiment.name and in logs);
-    # `subpath` is the nested filesystem layout (hp_trial_NN/szSIZE/qQUAL).
+    # `subpath` is the nested filesystem layout (<TRIAL_PREFIX>_NN/<size>/<quality>).
     jobs = []
     for cfg in hp_configs:
         for size in SIZES:
@@ -397,12 +400,11 @@ def main():
                 job = {**cfg}
                 job["size"] = size
                 job["quality"] = quality
-                q_tag = str(quality).replace(".", "_")
-                tid_tag = f"hp_trial_{cfg['trial_id']:02d}"
-                sz_tag = f"sz{size}"
-                q_tag_full = f"q{q_tag}"
-                job["trial_name"] = f"{tid_tag}_{sz_tag}_{q_tag_full}"
-                job["subpath"] = f"{tid_tag}/{sz_tag}/{q_tag_full}"
+                tid_tag = f"{TRIAL_PREFIX}_{cfg['trial_id']:02d}"
+                sz_tag = str(size)         # e.g. "100000"
+                q_tag = str(quality)       # e.g. "0.1072766"
+                job["trial_name"] = f"{tid_tag}_{sz_tag}_{q_tag}"
+                job["subpath"] = f"{tid_tag}/{sz_tag}/{q_tag}"
                 jobs.append(job)
     random.Random(SEED).shuffle(jobs)
 
@@ -472,7 +474,6 @@ def main():
     print(f"\nResults -> {out_csv}")
 
     # Save each HP config as a YAML file with its per-size val losses
-    import yaml
     for trial_id in sorted(df["trial_id"].unique()):
         sub = df[df["trial_id"] == trial_id]
         row0 = sub.iloc[0]
@@ -507,10 +508,10 @@ def main():
             quality_key = float(r["quality"])
             per_size_quality.setdefault(size_key, {})[quality_key] = entry
         trial_doc = {"config": config, "results_per_size_quality": per_size_quality}
-        yaml_path = output_dir / f"hp_trial_{int(trial_id):02d}.yaml"
+        yaml_path = output_dir / f"{TRIAL_PREFIX}_{int(trial_id):02d}.yaml"
         with open(yaml_path, "w") as f:
             yaml.dump(trial_doc, f, default_flow_style=False, sort_keys=False)
-    print(f"Per-trial YAML configs -> {output_dir}/hp_trial_*.yaml")
+    print(f"Per-trial YAML configs -> {output_dir}/{TRIAL_PREFIX}_*.yaml")
 
     # Print summary: mean MI across sizes x qualities per trial
     ok_df = df[df["status"] == "ok"]
