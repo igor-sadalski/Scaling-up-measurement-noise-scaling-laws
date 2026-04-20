@@ -24,3 +24,6 @@ logs/
 failed_jobs.txt
 *.nohup.out
 nohup.out
+Geneformer/**/*.pkl
+Geneformer/**/*.bin
+Geneformer/**/*.json
