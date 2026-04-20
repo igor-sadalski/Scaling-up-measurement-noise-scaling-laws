@@ -519,7 +519,7 @@ class ExperimentJobIterator:
         self.experiment_iterator = iter(self.experiment_combinations)
         self.gpu_generators = {}
 
-    def _get_config_for_size(self, algo: str, size: int) -> dict:
+    def _get_config_for_size(self, algo: str, size: int, dataset: str | None = None) -> dict:
         max_size = max(self.sizes)
         if algo == "Geneformer":
             max_epochs = max(1, int(10 * (max_size / size)))
@@ -530,9 +530,9 @@ class ExperimentJobIterator:
             print(f"Max epochs for {algo} with {size} cells (max_size={max_size}): {max_epochs}")
             return {"max_epochs": max_epochs, "early_stopping_patience": 3}
         elif algo == "State":
-            max_epochs = max(1, int(10 * (max_size / size)))
-            print(f"Max epochs for {algo} with {size} cells (max_size={max_size}): {max_epochs}")
-            return {"max_epochs": max_epochs, "early_stopping_patience": 3}
+            max_steps = 15_000
+            print(f"Max steps for {algo} with {size} cells: {max_steps}; early stopping patience=5")
+            return {"max_steps": max_steps, "early_stopping_patience": 5}
         else:
             raise ValueError(f"Algorithm {algo} not supported")
 
@@ -551,7 +551,7 @@ class ExperimentJobIterator:
         device = next(self.gpu_generators[algo])
 
         if algo in ("Geneformer", "SCVI", "State"):
-            config = self._get_config_for_size(algo, size)
+            config = self._get_config_for_size(algo, size, dataset=dataset)
 
             job_args = {
                 "dataset": dataset,
@@ -559,11 +559,14 @@ class ExperimentJobIterator:
                 "quality": quality,
                 "algo": algo,
                 "device": device,
-                "max_epochs": config["max_epochs"],
                 "early_stopping_patience": config["early_stopping_patience"],
                 "signal_columns": self.signal_columns,
                 "path_to_data_dir": self.path_to_data_dir,
             }
+            if "max_epochs" in config:
+                job_args["max_epochs"] = config["max_epochs"]
+            if "max_steps" in config:
+                job_args["max_steps"] = config["max_steps"]
 
             time.sleep(self.sleep_time)
         else:
@@ -763,12 +766,13 @@ class Experiments:
                 10_000_000: {"max_epochs": 10, "early_stopping_patience": 3},
             },
             "State": {
-                100: {"max_epochs": 100_000, "early_stopping_patience": 3},
-                1_000: {"max_epochs": 10_000, "early_stopping_patience": 3},
-                10_000: {"max_epochs": 1_000, "early_stopping_patience": 3},
-                100_000: {"max_epochs": 100, "early_stopping_patience": 3},
-                1_000_000: {"max_epochs": 10, "early_stopping_patience": 3},
-                10_000_000: {"max_epochs": 10, "early_stopping_patience": 3},
+                # Fixed step budget (no early stopping); steps ≈ max_epochs × (size // 64)
+                100: {"max_epochs": 100_000, "early_stopping_patience": 0, "max_steps": 100_000},
+                1_000: {"max_epochs": 10_000, "early_stopping_patience": 0, "max_steps": 150_000},
+                10_000: {"max_epochs": 1_000, "early_stopping_patience": 0, "max_steps": 156_000},
+                100_000: {"max_epochs": 100, "early_stopping_patience": 0, "max_steps": 156_200},
+                1_000_000: {"max_epochs": 10, "early_stopping_patience": 0, "max_steps": 156_250},
+                10_000_000: {"max_epochs": 10, "early_stopping_patience": 0, "max_steps": 1_562_500},
             },
         }
 
@@ -1167,6 +1171,7 @@ class Experiments:
         batch_size_inference: int | None = None,
         max_epochs: int | None = None,
         early_stopping_patience: int | None = None,
+        max_steps: int | None = None,
         jobs_per_gpu: int = 0,
         log_dir: str | None = None,
     ):
@@ -1245,6 +1250,8 @@ class Experiments:
                         job_args["max_epochs"] = max_epochs
                     if early_stopping_patience is not None:
                         job_args["early_stopping_patience"] = early_stopping_patience
+                    if max_steps is not None:
+                        job_args["max_steps"] = max_steps
                     if jobs_per_gpu > 0:
                         job_args["device"] = free_gpus.pop(0)
                     future = executor.submit(JobProcessor(**job_args))
@@ -1302,6 +1309,8 @@ class Experiments:
                         job_args["max_epochs"] = max_epochs
                     if early_stopping_patience is not None:
                         job_args["early_stopping_patience"] = early_stopping_patience
+                    if max_steps is not None:
+                        job_args["max_steps"] = max_steps
                     if jobs_per_gpu > 0:
                         job_args["device"] = free_gpus.pop(0)
                     new_future = executor.submit(JobProcessor(**job_args))
@@ -1375,6 +1384,7 @@ class Experiments:
         algo,
         max_epochs: int = None,
         early_stopping_patience: int = None,
+        max_steps: int | None = None,
         device: int = 0,
         retrain: bool = True,
         reembed: bool = True,
@@ -1442,7 +1452,9 @@ class Experiments:
                 dataset_name=self.datasets[0],
                 seed=self.seed,
             )
-            if max_epochs is not None:
+            if max_steps is not None:
+                state_kwargs["max_steps"] = max_steps
+            elif max_epochs is not None:
                 state_kwargs["max_epochs"] = max_epochs
             if early_stopping_patience is not None:
                 state_kwargs["early_stopping_patience"] = early_stopping_patience
@@ -1739,6 +1751,7 @@ class JobProcessor:
         algo = kwargs["algo"]
         max_epochs = kwargs.get("max_epochs", 1)
         early_stopping_patience = kwargs.get("early_stopping_patience", 1)
+        max_steps = kwargs.get("max_steps", None)
         device = kwargs.get("device", 0)
         signal_columns = kwargs.get("signal_columns", [])
         retrain = kwargs.get("retrain", True)
@@ -1794,6 +1807,9 @@ class JobProcessor:
             "--seed",
             str(seed),
         ]
+
+        if max_steps is not None:
+            self.cmd.extend(["--max_steps", str(max_steps)])
 
         if signal_columns:
             self.cmd.extend(["--signal_columns"] + signal_columns)

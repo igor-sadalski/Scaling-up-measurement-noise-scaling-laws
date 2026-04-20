@@ -19,6 +19,15 @@ Other fixed (use state-defaults.yaml values; not swept):
     - optimizer.{start, end, max_grad_norm, gradient_accumulation_steps,
       reset_lr_on_restart, zclip}
 
+Loss logging (matches scaling_laws/algo/state.py used by the all-datasets run):
+    - validation every VAL_CHECK_INTERVAL=1000 optimizer steps (limit_val_batches=50)
+    - train loss logged every 10 optimizer steps
+    - one .ckpt saved per validation tick (save_top_k=-1) so the best ckpt can
+      be recovered via argmin(val_loss) in metrics.csv
+    - after training, full Lightning metrics.csv is copied to
+      <trial>/<model_name>/loss/metrics.csv and best train/val/test scalars are
+      written to train_loss.txt / val_loss.txt / test_loss.txt
+
 Parallelism: 2 jobs per GPU across all visible GPUs.
 
 Outputs:
@@ -99,9 +108,15 @@ TRIAL_PREFIX = "hp_trial"
 JOBS_PER_GPU = 1  # 1/GPU on 40GB A100s — STATE's 109M pe_embedding makes 2/GPU OOM
 SEED = 42
 # Hard cap on total optimizer (gradient) steps per trial. Wired via STATE's
-# profiler path so Lightning's trainer.max_steps is honored, and validation +
-# checkpointing fire at the final step so test_loss.txt / best.ckpt are written.
-OPTIMIZER_STEPS = 10
+# profiler path so Lightning's trainer.max_steps is honored. Matches the
+# 15k-step budget used by the production all-datasets run
+# (analysis/2026-04-16_14-49_compute_state_all_datasets.py) so HP-sweep loss
+# curves are directly comparable.
+OPTIMIZER_STEPS = 15000
+# Validation cadence (in optimizer steps). Matches scaling_laws/algo/state.py
+# so train/val curves and best-ckpt selection work the same way as the
+# all-datasets run.
+VAL_CHECK_INTERVAL = 1000
 
 
 # ── Search spaces ─────────────────────────────────────────────────────
@@ -224,9 +239,10 @@ def run_trial(trial: dict, device: int) -> dict:
             # paths, the per-worker port, sweep-specific default flips).
             # The OPTIMIZER_STEPS cap is wired via STATE's profiler path,
             # which is the only place trainer.max_steps gets set in
-            # state/emb/train/trainer.py.  val_check_interval and
-            # every_n_train_steps are aligned with the cap so validation +
-            # checkpointing fire on the final step.
+            # state/emb/train/trainer.py. Validation / checkpoint / train-loss
+            # logging cadence mirrors scaling_laws/algo/state.py so that
+            # metrics.csv from this sweep is directly comparable to the
+            # all-datasets production runs.
             hp = self.hp
             cmd_fit = [
                 str(self.state_python), "-m", "state", "emb", "fit",
@@ -254,11 +270,16 @@ def run_trial(trial: dict, device: int) -> dict:
                 "experiment.profile.enable_profiler=true",
                 f"experiment.profile.max_steps={OPTIMIZER_STEPS}",
                 f"experiment.profile.profile_steps=[0,{OPTIMIZER_STEPS}]",
-                f"experiment.val_check_interval={OPTIMIZER_STEPS}",
-                "experiment.limit_val_batches=1",
-                f"experiment.checkpoint.every_n_train_steps={OPTIMIZER_STEPS}",
-                # Keep only the single best checkpoint (by val loss); no last.ckpt.
-                "experiment.checkpoint.save_top_k=1",
+                # Logging cadence — matches scaling_laws/algo/state.py so the
+                # resulting metrics.csv has dense train curves (~OPTIMIZER_STEPS/10
+                # rows) and ~OPTIMIZER_STEPS/VAL_CHECK_INTERVAL val rows.
+                f"experiment.val_check_interval={VAL_CHECK_INTERVAL}",
+                "experiment.limit_val_batches=50",
+                "+experiment.log_every_n_steps=10",
+                f"experiment.checkpoint.every_n_train_steps={VAL_CHECK_INTERVAL}",
+                # Keep one .ckpt per validation tick so _find_best_checkpoint
+                # can pick argmin(val_loss); no last.ckpt.
+                "experiment.checkpoint.save_top_k=-1",
                 "experiment.checkpoint.monitor=validation/val_loss",
                 "+experiment.checkpoint.save_last=false",
                 # Defaults we must flip for the sweep
@@ -267,7 +288,13 @@ def run_trial(trial: dict, device: int) -> dict:
                 "validations.diff_exp.enable=false",
                 "validations.perturbation.enable=false",
             ]
-            subprocess.run(cmd_fit, cwd=str(self.state_package_dir), env=env, check=True)
+            try:
+                subprocess.run(cmd_fit, cwd=str(self.state_package_dir), env=env, check=True)
+            finally:
+                # Persist full Lightning loss curve + scalar train/val/test files
+                # even on crash / SIGTERM (mirrors scaling_laws/algo/state.py).
+                self._save_loss_curves()
+                self._save_final_losses()
 
     # Persist the full per-trial config to its own JSON in the trial folder,
     # before training starts (so it survives crashes).
