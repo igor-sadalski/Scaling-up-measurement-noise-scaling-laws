@@ -22,3 +22,5 @@ scaling_laws/wandb
 *.log
 logs/
 failed_jobs.txt
+*.nohup.out
+nohup.out
