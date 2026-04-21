@@ -2,7 +2,10 @@
 
 Architecture is held fixed at STATE defaults (emsize=256, d_hid=512, nhead=4,
 nlayers=3, output_dim=256). Only regularization/optimization knobs are swept.
-N_TRIALS x |SIZES| x |QUALITIES| runs.
+(N_TRIALS + 1) x |SIZES| x |QUALITIES| runs — one extra "production" trial is
+always appended with the exact config used everywhere else in this project
+(scaling_laws.algo.state.State defaults; see PRODUCTION_CONFIG below), so the
+sweep produces a baseline curve directly comparable to the all-datasets run.
 
 Tunable parameters (sweep):
     dropout, batch_size, max_lr, weight_decay
@@ -138,25 +141,42 @@ SEARCH_SPACE = {
     "weight_decay": ("choice", [1e-4, 1e-3, 1e-2, 1e-1]),
 }
 
+# Production baseline: the exact config used everywhere else in this repo
+# (scaling_laws.algo.state.State defaults + hardcoded weight_decay from the
+# `state emb fit` command in that module). Always appended as the final trial
+# so the sweep always includes a curve directly comparable to the all-datasets
+# run (analysis/2026-04-16_14-49_compute_state_all_datasets.py).
+PRODUCTION_CONFIG = {
+    "dropout":      0.1,
+    "batch_size":   64,
+    "max_lr":       1e-4,
+    "weight_decay": 1e-2,
+}
+
 
 def generate_trials(n: int, seed: int) -> list[dict]:
-    """Sample n distinct HP configurations without replacement from SEARCH_SPACE.
+    """Sample n distinct HP configs from SEARCH_SPACE, then append PRODUCTION_CONFIG.
 
-    Enumerates the full Cartesian product of the discrete `choice` spaces and
-    draws `n` unique points, so no two trials duplicate the same config.
+    Returns n + 1 trials: `n` random draws without replacement (production
+    excluded from the sampling pool so it can't be drawn twice), plus the
+    hardcoded production baseline as trial_id = n.
     """
     names = list(SEARCH_SPACE)
     for name, spec in SEARCH_SPACE.items():
         if spec[0] != "choice":
             raise ValueError(f"{name}: unsupported sampling kind {spec[0]!r}")
-    grid = list(itertools.product(*(SEARCH_SPACE[name][1] for name in names)))
+    prod_tuple = tuple(PRODUCTION_CONFIG[name] for name in names)
+    grid = [p for p in itertools.product(*(SEARCH_SPACE[name][1] for name in names))
+            if p != prod_tuple]
     if n > len(grid):
-        raise ValueError(f"N_TRIALS={n} exceeds grid size {len(grid)}")
+        raise ValueError(f"N_TRIALS={n} exceeds grid size {len(grid)} (production excluded)")
     picks = random.Random(seed).sample(grid, n)
-    return [
+    trials = [
         {"trial_id": i, **dict(zip(names, pick))}
         for i, pick in enumerate(picks)
     ]
+    trials.append({"trial_id": n, **PRODUCTION_CONFIG})
+    return trials
 
 
 # ── Per-trial runner (executed in a subprocess) ─────────────────────────
