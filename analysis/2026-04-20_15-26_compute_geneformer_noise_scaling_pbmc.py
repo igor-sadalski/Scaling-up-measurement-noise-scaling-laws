@@ -154,7 +154,7 @@ def _retokenize_h5ad(src_h5ad: Path, out_dir: Path, attr_cols: list[str]) -> Non
 
         tk = TranscriptomeTokenizer(
             custom_attr_name_dict={c: c for c in attr_cols},
-            nproc=8,
+            nproc=1,
             chunk_size=512,
             model_input_size=MODEL_INPUT_SIZE,
             special_token=True,
