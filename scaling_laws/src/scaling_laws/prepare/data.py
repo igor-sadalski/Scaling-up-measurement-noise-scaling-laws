@@ -311,8 +311,12 @@ class PrepareData:
         elif dataset_name == "merfish":
             raw_dir = path_to_data_dir / "raw"
             raw_dir.mkdir(parents=True, exist_ok=True)
-            meta = pd.read_csv("/home/igor/exploration/Scaling-up-measurement-noise-scaling-laws/S1R1_meta.csv", index_col=0)
-            cxg = pd.read_csv("/home/igor/exploration/Scaling-up-measurement-noise-scaling-laws/S1R1_cxg.csv", index_col=0)
+            # Raw merfish CSVs live next to the dataset's `raw/` dir; the older
+            # absolute paths under /home/igor/exploration/ are dead.
+            meta_csv = raw_dir / "S1R1_meta.csv"
+            cxg_csv = raw_dir / "S1R1_cxg.csv"
+            meta = pd.read_csv(meta_csv, index_col=0)
+            cxg = pd.read_csv(cxg_csv, index_col=0)
             rnas = [x for x in cxg.keys() if "Blank" not in x]
             adata = ad.AnnData(cxg[rnas])
             sparse_X = sp.csr_matrix(adata.X)
@@ -1064,9 +1068,10 @@ class Experiments:
         After this, ``State.train()`` can skip preprocessing and go
         straight to ``state emb fit``.
         """
-        state_python = Path("/home/igor/miniconda3/envs/state/bin/python")
-        state_package_dir = Path("/home/igor/noise_scaling/modeling/STATE/state")
-        state_defaults_yaml = state_package_dir / "src" / "state" / "configs" / "state-defaults.yaml"
+        from scaling_laws.paths import STATE_PYTHON, STATE_PACKAGE_DIR, STATE_DEFAULTS_YAML
+        state_python = STATE_PYTHON
+        state_package_dir = STATE_PACKAGE_DIR
+        state_defaults_yaml = STATE_DEFAULTS_YAML
 
         # Resolve ESM embeddings path
         if esm_embeddings_path is None:

@@ -1,10 +1,11 @@
 from scaling_laws.prepare.data import Experiments
+from scaling_laws.paths import DATA_DIR
 import numpy as np
 
 datasets = ["shendure"]
 sizes = list(map(int, np.logspace(2, 7, 10)))
 qualities = list(map(lambda x: round(x, 7), np.logspace(0, np.log10(10 / 2500), 10)))
-path_to_data_dir = "/mnt/nvme/noise_laws/data"
+path_to_data_dir = str(DATA_DIR)
 signal_columns = ["author_day"]
 seeds = [42]
 

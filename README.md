@@ -39,6 +39,7 @@ mi  = data.load_mutual_information("merfish", num_cells=7113, quality=1.0,
 │       │   ├── rp.py                # Random projection baseline
 │       │   └── utils.py             # Shared helpers (HVG selection, normalization)
 │       ├── h5ad_reader.py           # Memory-efficient chunked H5AD reader
+│       ├── paths.py                 # Single source of truth for absolute paths (env-var overridable)
 │       └── s3_retriever.py          # S3Retriever: load data/models/MI from S3 or local
 │
 ├── Geneformer/                      # Geneformer library (installed as editable package)
@@ -47,6 +48,10 @@ mi  = data.load_mutual_information("merfish", num_cells=7113, quality=1.0,
 │       ├── pretrainer.py            # Masked language model pre-training
 │       ├── emb_extractor.py         # Embedding extraction
 │       └── ...
+│
+├── STATE/                           # Vendored Arc Institute STATE package
+│   └── state/                       # `pip install -e STATE/state` in the `state` env
+│       └── src/state/configs/state-defaults.yaml
 │
 ├── analysis/                        # Post-hoc analysis notebooks and scripts
 │   ├── big_fig.ipynb                # Main results figure
@@ -76,7 +81,6 @@ mi  = data.load_mutual_information("merfish", num_cells=7113, quality=1.0,
 ├── hvg.ipynb                        # HVG computation notebook
 │
 ├── *.slurm                          # SLURM job submission scripts
-├── install_dependencies.sh          # Automated dependency installation
 └── requirements.txt                 # Python dependencies
 ```
 
@@ -103,23 +107,86 @@ Training epochs scale inversely with dataset size: `max(1, K * 10M / size)` wher
 
 ## Installation
 
+This project ships with the STATE package vendored in-tree at `STATE/`, so a fresh `git clone` plus the steps below is everything you need on a new machine.
+
+### 1. Clone
+
 ```bash
-# Clone the repository
 git clone https://github.com/igor-sadalski/Scaling-up-measurement-noise-scaling-laws.git
 cd Scaling-up-measurement-noise-scaling-laws
-
-# Option A: automated install
-bash install_dependencies.sh
-
-# Option B: manual install
-python3.10 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cd Geneformer && pip install -e . && cd ..
-cd scaling_laws && pip install -e . && cd ..
 ```
 
-For STATE experiments, an additional conda environment (`state`) with the [Arc Institute STATE package](https://github.com/ArcInstitute/state) is required.
+### 2. Create the two conda environments
+
+Two environments are required because STATE has dependency conflicts (Hydra, Lightning) with the rest of the stack.
+
+```bash
+# Main env: Geneformer / scVI / PCA / RP / orchestration
+conda create -n modeling python=3.10 -y
+conda activate modeling
+pip install -r requirements.txt
+pip install -e Geneformer
+pip install -e scaling_laws
+
+# STATE env: only the STATE algorithm is run from here
+conda create -n state python=3.11 -y
+conda activate state
+pip install -e STATE/state          # in-tree, no separate clone needed
+```
+
+### 3. Configure data location (env vars)
+
+`scaling_laws/paths.py` is the single source of truth for every absolute path used by scripts in this repo. All defaults assume the user's home directory; override via env vars if your data lives elsewhere.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NOISE_SCALING_DATA_DIR` | `~/noise_scaling/data` | Input H5ADs + preprocessed data |
+| `NOISE_SCALING_OUTPUT_BASE` | `$NOISE_SCALING_DATA_DIR/other` | Where sweep outputs go |
+| `STATE_PYTHON` | `~/miniconda3/envs/state/bin/python` | Python in the STATE conda env |
+| `STATE_PACKAGE_DIR` | `<repo>/STATE/state` | Override only if STATE lives elsewhere |
+
+```bash
+# Optional — only set what you need to override.
+export NOISE_SCALING_DATA_DIR=/path/to/your/data
+export NOISE_SCALING_OUTPUT_BASE="$NOISE_SCALING_DATA_DIR/other"
+export STATE_PYTHON="$(conda env list | awk '/^state /{print $NF}')/bin/python"
+```
+
+### 4. Download the data from S3
+
+The full sweep is ~6.2 TB. To run a single PBMC script, sync only the slice you need:
+
+```bash
+# Full mirror (huge):
+aws s3 sync s3://measurement-noise-scaling-laws/data/ "$NOISE_SCALING_DATA_DIR"
+
+# PBMC at the largest size only (~ enough for one model-size or HP-sweep run):
+aws s3 sync s3://measurement-noise-scaling-laws/data/PBMC/100000/ \
+            "$NOISE_SCALING_DATA_DIR/PBMC/100000/"
+```
+
+No AWS credentials are needed (the bucket is public).
+
+### 5. Verify the install
+
+```bash
+conda activate modeling
+python -m scaling_laws.paths
+# Every line should print "[OK ]". If any path shows "MISSING", set the
+# corresponding env var (see step 3) or sync more data (step 4).
+
+conda activate state
+python -m state --help
+```
+
+### Important: launch scripts from the env where `scaling_laws` is installed
+
+Worker subprocesses (`ProcessPoolExecutor`) inherit `sys.path` from the launching parent process, so `from scaling_laws.algo.state import State` only resolves if you launched the script from the `modeling` env.
+
+```bash
+conda activate modeling
+python analysis/2026-04-16_14-43_compute_state_hparam_sweep_pbmc.py
+```
 
 ## Running experiments
 

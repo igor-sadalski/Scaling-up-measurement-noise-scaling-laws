@@ -75,27 +75,28 @@ if __name__ == "__main__":
     print("Starting HVG preparation process")
     print("=" * 70 + "\n")
     
+    from scaling_laws.paths import DATA_DIR
     datasets = [
         {
-            "input_h5ad_path": "/mnt/nvme/noise_laws/data/larry/100000/1.0/preprocessed/preprocessed.h5ad",
-            "output_dir": "/mnt/nvme/noise_laws/data/larry/utils",
+            "input_h5ad_path": str(DATA_DIR / "larry/100000/1.0/preprocessed/preprocessed.h5ad"),
+            "output_dir": str(DATA_DIR / "larry/utils"),
             "n_top_genes": 750,
             "max_cells": 300_000,
             "seed": 0,
         },
         {
-            "input_h5ad_path": "/mnt/nvme/noise_laws/data/shendure/10000000/1.0/preprocessed/preprocessed.h5ad",
-            "output_dir": "/mnt/nvme/noise_laws/data/shendure/utils",
+            "input_h5ad_path": str(DATA_DIR / "shendure/10000000/1.0/preprocessed/preprocessed.h5ad"),
+            "output_dir": str(DATA_DIR / "shendure/utils"),
             "n_top_genes": 750,
         },
         {
-            "input_h5ad_path": "/mnt/nvme/noise_laws/data/merfish/100000/1.0/preprocessed/preprocessed.h5ad",
-            "output_dir": "/mnt/nvme/noise_laws/data/merfish/utils",
+            "input_h5ad_path": str(DATA_DIR / "merfish/100000/1.0/preprocessed/preprocessed.h5ad"),
+            "output_dir": str(DATA_DIR / "merfish/utils"),
             "n_top_genes": 750,
         },
         {
-            "input_h5ad_path": "/mnt/nvme/noise_laws/data/PBMC/100000/1.0/preprocessed/preprocessed.h5ad",
-            "output_dir": "/mnt/nvme/noise_laws/data/PBMC/utils",
+            "input_h5ad_path": str(DATA_DIR / "PBMC/100000/1.0/preprocessed/preprocessed.h5ad"),
+            "output_dir": str(DATA_DIR / "PBMC/utils"),
             "n_top_genes": 750,
         },
     ]

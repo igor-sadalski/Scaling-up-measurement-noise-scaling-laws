@@ -1,5 +1,6 @@
 from pathlib import Path
 from scaling_laws.prepare.data import Experiments, PrepareData
+from scaling_laws.paths import DATA_DIR
 import argparse
 import numpy as np
 
@@ -7,7 +8,7 @@ import numpy as np
 datasets = ["merfish"]
 sizes = list(map(int, np.logspace(np.log10(60000), 2, 10)))
 qualities = list(map(lambda x: round(x, 7), np.logspace(0, np.log10(10 / 367), 10)))
-path_to_data_dir = "/mnt/nvme/noise_laws/data"
+path_to_data_dir = str(DATA_DIR)
 signal_columns = ["cur_idx", "ng_idx"]
 seeds = [42, 1404, 2701]
 

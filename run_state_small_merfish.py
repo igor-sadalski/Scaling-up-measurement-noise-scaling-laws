@@ -13,8 +13,9 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from scaling_laws.prepare.data import Experiments
+from scaling_laws.paths import DATA_DIR as _DATA_DIR
 
-DATA_DIR = "/mnt/nvme/noise_laws/data"
+DATA_DIR = str(_DATA_DIR)
 DATASET = "merfish"
 SIGNAL_COLUMNS = ["cur_idx", "ng_idx"]
 SEEDS = [42, 1404, 2701]

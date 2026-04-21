@@ -2,7 +2,7 @@
 End-to-end test for the State algorithm integration.
 
 Tests the full pipeline: train → embed → LMI on MERFISH data.
-Uses existing preprocessed data at /home/igor/noise_scaling/data/merfish/.
+Uses existing preprocessed data at $NOISE_SCALING_DATA_DIR/merfish/.
 
 Usage:
     conda activate modeling
@@ -11,8 +11,9 @@ Usage:
 
 import time
 from scaling_laws.prepare.data import Experiments
+from scaling_laws.paths import DATA_DIR as _DATA_DIR
 
-DATA_DIR = "/home/igor/noise_scaling/data"
+DATA_DIR = str(_DATA_DIR)
 DATASET = "merfish"
 SIZE = 414
 QUALITY = 1.0

@@ -36,7 +36,8 @@ print(f"Logging to {LOG_PATH}")
 # ── Imports ───────────────────────────────────────────────────────────────
 from scaling_laws.prepare.data import Experiments
 
-path_to_data_dir = "/home/igor/noise_scaling/data"
+from scaling_laws.paths import DATA_DIR
+path_to_data_dir = str(DATA_DIR)
 
 ALL_SIZES = [100, 203, 414, 843, 1716, 3494, 7113, 14480, 29475, 60000]
 ALL_QUALITIES = [0.027248, 0.0406617, 0.0606789, 0.0905502, 0.1351267, 0.2016475, 0.3009156, 0.4490518, 0.6701133, 1.0]

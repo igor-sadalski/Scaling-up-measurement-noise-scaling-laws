@@ -64,7 +64,7 @@ from scaling_laws.s3_retriever import DATASET_SIZES, DATASET_QUALITIES
 
 print(f"Logging to {LOG_PATH}")
 
-DATA_DIR = Path("/home/igor/noise_scaling/data")
+from scaling_laws.paths import DATA_DIR
 DATASETS = ["PBMC", "larry", "merfish", "shendure"]
 ALGOS = ["Geneformer", "SCVI", "State"]
 NUM_GPUS = 8

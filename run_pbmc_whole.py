@@ -1,11 +1,12 @@
 from scaling_laws.prepare.data import Experiments
+from scaling_laws.paths import DATA_DIR
 import numpy as np
 
 
 datasets = ["PBMC"]
 sizes = list(map(int, np.logspace(5, 2, 10)))
 qualities = list(map(lambda x: round(x, 7), np.logspace(0, np.log10(10 / 8100), 10)))
-path_to_data_dir = "/mnt/nvme/noise_laws/data/"
+path_to_data_dir = str(DATA_DIR)
 signal_columns = ["celltype.l3", "protein_counts"]
 seeds = [42, 1404, 2701]
 

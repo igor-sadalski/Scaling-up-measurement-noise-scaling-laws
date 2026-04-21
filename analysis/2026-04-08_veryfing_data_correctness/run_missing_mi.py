@@ -6,7 +6,7 @@ as a single_job via the scaling_laws Experiments API.
 
 Usage:
     python run_missing_mi.py --max-workers 4
-    python run_missing_mi.py --max-workers 8 --base-dir /mnt/nvme/noise_laws/data/
+    python run_missing_mi.py --max-workers 8 --base-dir $NOISE_SCALING_DATA_DIR
     python run_missing_mi.py --max-workers 4 --retrain --reembed
     python run_missing_mi.py --csv /path/to/other.csv --max-workers 2 --device 1
 """
@@ -92,8 +92,8 @@ def main():
     parser.add_argument(
         "--base-dir",
         type=str,
-        default="/home/igor/igor_repos/scaling_laws/data_local/",
-        help="Base data directory",
+        default=None,
+        help="Base data directory (defaults to scaling_laws.paths.DATA_DIR)",
     )
     parser.add_argument(
         "--device",
@@ -120,6 +120,9 @@ def main():
         help="Skip MI recomputation (default: MI is recomputed)",
     )
     args = parser.parse_args()
+    if args.base_dir is None:
+        from scaling_laws.paths import DATA_DIR
+        args.base_dir = str(DATA_DIR)
 
     # Read CSV and group by (dataset, size, quality, algorithm, seed)
     jobs = defaultdict(set)

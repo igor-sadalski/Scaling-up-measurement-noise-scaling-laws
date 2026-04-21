@@ -13,7 +13,7 @@ Activate the conda environment before running Python commands:
 source ~/miniconda3/etc/profile.d/conda.sh && conda activate modeling
 ```
 
-**Exception**: STATE algorithm requires its own environment at `/home/igor/miniconda3/envs/state/bin/python` and the STATE package at `/home/igor/noise_scaling/modeling/STATE/state`.
+**Exception**: STATE algorithm runs in its own conda env (`state`). Both the Python and the STATE package location are resolved by `scaling_laws.paths` and overridable via the `STATE_PYTHON` / `STATE_PACKAGE_DIR` env vars. Defaults: `~/miniconda3/envs/state/bin/python` and `<repo>/STATE/state` (vendored in-tree).
 
 ## Package Structure
 
@@ -108,7 +108,8 @@ Uses `latentmi` (LMI estimator) with 4 seeds (42, 1404, 2303, 2701) per signal. 
 
 ## Data Location
 
-All data at `/home/igor/noise_scaling/data/` (symlink to `/opt/dlami/nvme/data`), also on S3:
+Resolved via `scaling_laws.paths.DATA_DIR` (default: `~/noise_scaling/data`, override via `NOISE_SCALING_DATA_DIR`). Mirror lives on S3 at `s3://measurement-noise-scaling-laws/data/`.
+
 ```bash
 aws s3 ls s3://measurement-noise-scaling-laws/data/
 ```
@@ -116,7 +117,8 @@ aws s3 ls s3://measurement-noise-scaling-laws/data/
 Use `S3Retriever` for programmatic access:
 ```python
 from scaling_laws.s3_retriever import S3Retriever
-s3 = S3Retriever("/home/igor/noise_scaling/data")
+from scaling_laws.paths import DATA_DIR
+s3 = S3Retriever(str(DATA_DIR))
 embeddings = s3.load_embeddings("PBMC", 10000, 1.0, "Geneformer")
 mi = s3.load_mutual_information("PBMC", 10000, 1.0, "Geneformer", "celltype.l3", seed=42)
 ```

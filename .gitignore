@@ -27,3 +27,62 @@ nohup.out
 Geneformer/**/*.pkl
 Geneformer/**/*.bin
 Geneformer/**/*.json
+
+# ── Large binaries that should never be committed ──────────────────────
+# Model weights / serialized tensors
+*.safetensors
+*.ckpt
+*.pth
+*.torch
+*.bin
+*.pkl
+*.pickle
+
+# Single-cell + numeric data
+*.h5ad
+*.h5
+*.hdf5
+*.npy
+*.npz
+*.parquet
+*.arrow
+*.feather
+
+# Compressed archives
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.gz
+
+# Git pack files (defensive against accidentally committing nested .git data)
+*.pack
+*.idx
+
+# Misc logs not covered by *.log / *.nohup.out
+*.nohup.log
+
+# ── STATE runtime artifacts (vendored at <repo>/STATE/) ────────────────
+# STATE/state/.gitignore covers most of these for files under STATE/state/,
+# but listing them here too means the parent repo never picks them up if
+# the nested .gitignore moves or the embedded .git is ever removed.
+STATE/state/.git/
+STATE/data/
+STATE/se_profile/
+STATE/se_checkpoints/
+STATE/lightning_logs/
+STATE/wandb/
+STATE/**/lightning_logs/
+STATE/**/wandb/
+STATE/**/outputs/
+STATE/**/notebooks/
+STATE/**/tmp/
+STATE/**/temp/
+STATE/**/uv.lock
+STATE/umap_test_embeddings.png
+
+# ── Regenerable aggregate CSVs (rebuilt from per-trial result.json/MI) ─
+collect_mi_results*.csv
+collect_state_results*.csv
+analysis/2026-04-08_veryfing_data_correctness/collect_*.csv
+analysis/2026-04-08_veryfing_data_correctness/missing_*.csv

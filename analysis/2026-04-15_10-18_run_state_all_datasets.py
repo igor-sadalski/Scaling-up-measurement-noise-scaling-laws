@@ -42,7 +42,8 @@ print(f"Logging to {LOG_PATH}")
 # ── Imports ───────────────────────────────────────────────────────────────
 from scaling_laws.prepare.data import Experiments
 
-path_to_data_dir = "/home/igor/noise_scaling/data"
+from scaling_laws.paths import DATA_DIR
+path_to_data_dir = str(DATA_DIR)
 
 DATASETS = {
     # "PBMC": {

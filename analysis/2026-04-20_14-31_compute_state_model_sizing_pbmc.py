@@ -17,19 +17,24 @@ Only `nlayers` is chosen by hand to span the desired parameter range.
 Hyperparameters held fixed at STATE defaults across all configs (see
 state-defaults.yaml): max_lr, dropout, batch_size, weight_decay.
 
-Loss logging matches the HP-sweep / all-datasets runs:
+Training protocol — matches scaling_laws/algo/state.py used by the HP-sweep
+and all-datasets runs:
+    - step budget: OPTIMIZER_STEPS=15000, enforced via experiment.num_epochs =
+      ceil(OPTIMIZER_STEPS / batches_per_epoch) — NOT the profiler path
+    - early stopping ALWAYS ON, monitor=validation/val_loss, patience=5,
+      every_n_steps=VAL_CHECK_INTERVAL
     - validation every VAL_CHECK_INTERVAL=1000 optimizer steps (limit_val_batches=50)
     - train loss logged every 10 optimizer steps
     - one .ckpt per validation tick (save_top_k=-1) -> argmin(val_loss) selects best
     - after training, full Lightning metrics.csv is copied to
-      <trial>/<model_name>/loss/metrics.csv and best train/val/test scalars are
-      written to train_loss.txt / val_loss.txt / test_loss.txt
+      <trial>/loss/metrics.csv and best train/val/test scalars are written to
+      train_loss.txt / val_loss.txt / test_loss.txt next to it
 
 Parallelism: 1 job per GPU across all visible GPUs (the larger configs need
 the headroom).
 
 Outputs:
-    /home/igor/noise_scaling/data/other/model_sizing/
+    $NOISE_SCALING_OUTPUT_BASE/model_sizing/  (default ~/noise_scaling/data/other/model_sizing)
         sweep_results.csv             # full results table
         model_sizing_NN.yaml          # per-config YAML with arch + per-quality results
         model_sizing_NN/<size>/<quality>/
@@ -98,8 +103,8 @@ QUALITIES = [
     0.4751547,
     1.0,
 ]
-DATA_DIR = Path("/home/igor/noise_scaling/data")
-OUTPUT_DIR = Path("/home/igor/noise_scaling/data/other/model_sizing")
+from scaling_laws.paths import DATA_DIR, OUTPUT_BASE
+OUTPUT_DIR = OUTPUT_BASE / "model_sizing"
 
 TRIAL_PREFIX = "model_sizing"
 JOBS_PER_GPU = 1  # 1/GPU on 40GB A100s — the larger configs need full headroom
@@ -154,10 +159,8 @@ def run_trial(trial: dict, device: int) -> dict:
     fields (emsize, d_hid, nhead, nlayers, output_dim, pad_length). Hyperparameters
     come from FIXED_HPARAMS (constant across the sweep).
     """
-    sys.path.insert(
-        0,
-        "/home/igor/noise_scaling/modeling/Scaling-up-measurement-noise-scaling-laws/scaling_laws/src",
-    )
+    # `scaling_laws` is pip-installed (editable) in the launching env;
+    # ProcessPoolExecutor workers inherit sys.path via fork.
     from scaling_laws.algo.state import State
 
     trial_name = trial["trial_name"]
@@ -186,7 +189,11 @@ def run_trial(trial: dict, device: int) -> dict:
             self.checkpoint_dir = self.model_path / "checkpoints"
             self.hp = extra_hparams or {}
 
+        def _bool(self, v) -> str:
+            return "true" if v else "false"
+
         def train(self) -> None:
+            import math
             import anndata as ad
             self._check_preprocessed()
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -197,53 +204,133 @@ def run_trial(trial: dict, device: int) -> dict:
             train_h5ad = self.train_data_path / "preprocessed.h5ad"
             adata = ad.read_h5ad(train_h5ad, backed="r")
             num_cells = int(adata.shape[0])
-            print(f"  [{self.model_name}] {num_cells} cells, cap={OPTIMIZER_STEPS} optimizer steps")
+            batches_per_epoch = max(1, num_cells // self.batch_size)
+            val_interval = VAL_CHECK_INTERVAL
+            max_epochs = max(1, math.ceil(OPTIMIZER_STEPS / batches_per_epoch))
+            print(f"  [{self.model_name}] {num_cells} cells, ~{batches_per_epoch} batches/epoch, "
+                  f"val every {val_interval} steps, step budget {OPTIMIZER_STEPS} -> {max_epochs} epochs")
 
+            # Mirrors scaling_laws/algo/state.py:144-211 exactly. Swept arch
+            # (emsize, d_hid, nhead, nlayers, output_dim) + fixed HPs are
+            # injected via the same Hydra keys; the step cap is enforced by
+            # converting to num_epochs (NOT the profiler path), and early
+            # stopping is ALWAYS on with patience=5, just like production.
             hp = self.hp
             cmd_fit = [
                 str(self.state_python), "-m", "state", "emb", "fit",
                 "--conf", str(self.config_path),
+                # Profile selection
                 f"embeddings.current={self.profile_name}",
                 f"dataset.current={self.profile_name}",
+                # Dataset
                 f"dataset.num_cells={num_cells}",
-                # Architecture (varies across trials)
+                "dataset.num_train_workers=4",
+                "dataset.num_val_workers=2",
+                f"dataset.pad_length={self.pad_length}",
+                f"dataset.P={self.pad_length // 4}",
+                f"dataset.N={self.pad_length // 4}",
+                f"dataset.S={self.pad_length // 4}",
+                # Model architecture (swept across trials)
                 f"model.batch_size={self.batch_size}",
                 f"model.emsize={self.emsize}",
                 f"model.d_hid={self.d_hid}",
                 f"model.nhead={self.nhead}",
                 f"model.nlayers={self.nlayers}",
                 f"model.output_dim={self.output_dim}",
+                "model.dataset_correction=false",
                 f"model.dropout={self.dropout}",
                 # Optimizer (held fixed across trials)
                 f"optimizer.max_lr={self.max_lr}",
+                "optimizer.gradient_accumulation_steps=1",
                 f"optimizer.weight_decay={hp.get('weight_decay', 0.01)}",
-                # Experiment bookkeeping
-                f"experiment.name=state_{self.profile_name}_{self.model_name}",
+                # Experiment — name MUST stay 'state_{profile_name}' so the
+                # inherited _find_lightning_metrics_csv can locate metrics.csv.
+                f"experiment.name=state_{self.profile_name}",
+                f"experiment.num_epochs={max_epochs}",
+                "experiment.num_gpus_per_node=1",
+                "experiment.num_nodes=1",
                 f"experiment.port={self._get_unique_port()}",
-                f"experiment.checkpoint.path={self.checkpoint_dir}",
-                # Hard cap on total gradient steps (via profiler path).
-                "experiment.profile.enable_profiler=true",
-                f"experiment.profile.max_steps={OPTIMIZER_STEPS}",
-                f"experiment.profile.profile_steps=[0,{OPTIMIZER_STEPS}]",
-                # Logging cadence — matches scaling_laws/algo/state.py.
-                f"experiment.val_check_interval={VAL_CHECK_INTERVAL}",
-                "experiment.limit_val_batches=50",
+                f"experiment.val_check_interval={val_interval}",
                 "+experiment.log_every_n_steps=10",
-                f"experiment.checkpoint.every_n_train_steps={VAL_CHECK_INTERVAL}",
-                "experiment.checkpoint.save_top_k=-1",
+                "experiment.limit_val_batches=50",
+                f"experiment.checkpoint.path={self.checkpoint_dir}",
+                f"experiment.checkpoint.every_n_train_steps={val_interval}",
                 "experiment.checkpoint.monitor=validation/val_loss",
+                "experiment.checkpoint.save_top_k=-1",
                 "+experiment.checkpoint.save_last=false",
-                # Defaults we must flip for the sweep
-                "experiment.early_stopping.enable=false",
+                # Disable logging and extra validations
                 "wandb.enable=false",
                 "validations.diff_exp.enable=false",
                 "validations.perturbation.enable=false",
+                # Early stopping ALWAYS ON (patience=5) — matches production
+                "experiment.early_stopping.enable=true",
+                "experiment.early_stopping.monitor=validation/val_loss",
+                "experiment.early_stopping.patience=5",
+                f"+experiment.early_stopping.every_n_steps={val_interval}",
+                "experiment.early_stopping.min_delta=0.0",
+                "experiment.early_stopping.mode=min",
             ]
             try:
                 subprocess.run(cmd_fit, cwd=str(self.state_package_dir), env=env, check=True)
             finally:
+                # Persist full Lightning loss curve + scalar train/val/test files
+                # even on crash / SIGTERM (mirrors scaling_laws/algo/state.py).
                 self._save_loss_curves()
                 self._save_final_losses()
+
+        # The base implementations write to self.save_folder_path/self.model_name/...
+        # but in this sweep model_name == trial_name (a flat label) and that
+        # path doesn't equal self.model_path. Override to write into
+        # self.model_path directly so the loss artifacts land alongside
+        # config.json / embeddings.csv / MI/.
+        def _save_loss_curves(self) -> None:
+            metrics_file = self._find_lightning_metrics_csv()
+            if metrics_file is None:
+                print(f"  Warning: no Lightning metrics.csv under "
+                      f"{self.checkpoint_dir}/state_{self.profile_name}/version_*; "
+                      f"train/val loss curves will NOT be saved.")
+                return
+            loss_dir = self.model_path / "loss"
+            loss_dir.mkdir(parents=True, exist_ok=True)
+            dest = loss_dir / "metrics.csv"
+            shutil.copy(metrics_file, dest)
+            try:
+                df = pd.read_csv(dest)
+                n_train = df["trainer/train_loss"].notna().sum() if "trainer/train_loss" in df.columns else 0
+                n_val = df["validation/val_loss"].notna().sum() if "validation/val_loss" in df.columns else 0
+                last_step = int(df["step"].max()) if "step" in df.columns and not df.empty else 0
+                print(f"  Loss curves saved to {dest} "
+                      f"(train_pts={n_train}, val_pts={n_val}, last_step={last_step})")
+            except Exception as e:
+                print(f"  Loss curves saved to {dest} (could not summarize: {e})")
+
+        def _save_final_losses(self) -> None:
+            metrics_path = self.model_path / "loss" / "metrics.csv"
+            if not metrics_path.exists():
+                print(f"  Warning: {metrics_path} missing — final losses NOT saved.")
+                return
+            try:
+                df = pd.read_csv(metrics_path, on_bad_lines="skip")
+            except Exception as e:
+                print(f"  Warning: could not read {metrics_path}: {e}")
+                return
+            train_loss_path = self.model_path / "train_loss.txt"
+            val_loss_path = self.model_path / "val_loss.txt"
+            def _best(col: str):
+                if col not in df.columns:
+                    return None
+                vals = df[col].dropna()
+                return float(vals.min()) if not vals.empty else None
+            best_train = _best("trainer/train_loss")
+            best_val = _best("validation/val_loss")
+            if best_train is not None:
+                train_loss_path.write_text(f"{best_train:.6f}")
+                print(f"  Final train loss: {best_train:.6f} -> {train_loss_path}")
+            if best_val is not None:
+                val_loss_path.write_text(f"{best_val:.6f}")
+                self.test_loss_path.write_text(f"{best_val:.6f}")
+                print(f"  Final val loss  : {best_val:.6f} -> {val_loss_path}")
+                print(f"  Final test loss : {best_val:.6f} -> {self.test_loss_path}  (proxy = best val_loss)")
 
     trial_dir = OUTPUT_DIR / subpath
     trial_dir.mkdir(parents=True, exist_ok=True)

@@ -63,7 +63,7 @@ from tqdm.auto import tqdm
 
 from latentmi import ksg
 
-DATA_ROOT = Path('/home/igor/noise_scaling/data')
+from scaling_laws.paths import DATA_DIR as DATA_ROOT
 SEED = 42
 N_WORKERS = 64         # 96 CPUs available; leave headroom for I/O + tree builds
 KSG_K = 3              # standard k for KSG estimator

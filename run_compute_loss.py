@@ -15,7 +15,7 @@ from tqdm import tqdm
 
 from scaling_laws.s3_retriever import DATASET_SIZES, DATASET_QUALITIES
 
-DATA_DIR = Path("/home/igor/noise_scaling/data")
+from scaling_laws.paths import DATA_DIR
 DATASETS = ["PBMC", "larry", "merfish", "shendure"]
 NUM_GPUS = 8
 WORKERS = 8

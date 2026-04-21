@@ -27,7 +27,7 @@ all-datasets run (analysis/2026-04-16_14-49_compute_state_all_datasets.py):
 Parallelism: 2 jobs per GPU across all visible GPUs.
 
 Outputs:
-    /home/igor/noise_scaling/data/other/hp_tunning/
+    $NOISE_SCALING_OUTPUT_BASE/hp_tunning/  (default ~/noise_scaling/data/other/hp_tunning)
         sweep_results.csv       # full results table
         hp_trial_XX.yaml        # per-config YAML with params + per-size results
 """
@@ -92,10 +92,10 @@ QUALITIES = [
     0.4751547,
     1.0,
 ]
-DATA_DIR = Path("/home/igor/noise_scaling/data")
+from scaling_laws.paths import DATA_DIR, OUTPUT_BASE
 # All per-trial artifacts (checkpoints, embeddings, loss curves, MI results)
 # live under OUTPUT_DIR/<trial_name>/, independent of DATA_DIR.
-OUTPUT_DIR = Path("/home/igor/noise_scaling/data/other/hp_tunning")
+OUTPUT_DIR = OUTPUT_BASE / "hp_tunning"
 
 N_TRIALS = 8
 # Prefix for trial folder/yaml/log names. Change e.g. to "model_sizing" to
@@ -173,10 +173,9 @@ def run_trial(trial: dict, device: int) -> dict:
     Returns dict with trial config + metrics (best_val_loss, etc.).
     """
     # Imports are done inside the worker to avoid CUDA init in the parent.
-    sys.path.insert(
-        0,
-        "/home/igor/noise_scaling/modeling/Scaling-up-measurement-noise-scaling-laws/scaling_laws/src",
-    )
+    # `scaling_laws` is pip-installed (editable) in the env that launches this
+    # script; the ProcessPoolExecutor worker inherits sys.path via fork, so no
+    # manual path insertion is needed.
     from scaling_laws.algo.state import State
 
     trial_name = trial["trial_name"]

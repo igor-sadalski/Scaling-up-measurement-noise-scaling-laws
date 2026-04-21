@@ -48,7 +48,8 @@ datasets = ["merfish"]
 # Single point matching notebook 2026-04-13_20-36
 sizes = [60000]
 qualities = [1.0]
-path_to_data_dir = "/home/igor/noise_scaling/data"
+from scaling_laws.paths import DATA_DIR
+path_to_data_dir = str(DATA_DIR)
 signal_columns = ["cur_idx", "ng_idx"]
 seeds = [42]
 

@@ -1,12 +1,13 @@
 from pathlib import Path
 from scaling_laws.prepare.data import Experiments, PrepareData
+from scaling_laws.paths import DATA_DIR
 import argparse
 import numpy as np
 
 datasets = ["larry"]
 sizes = list(map(int, np.logspace(2, int(np.log10(110000)), 10)))
 qualities = list(map(lambda x: round(x, 7), np.logspace(0, np.log10(10 / 2580), 10)))
-path_to_data_dir = '/mnt/nvme/noise_laws/data'
+path_to_data_dir = str(DATA_DIR)
 signal_columns = ["index", "clone", "time"]
 seeds = [42, 1404, 2701]
 

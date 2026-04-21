@@ -60,10 +60,12 @@ class State(BaseAlgorithm):
         self.max_lr = max_lr
         self.dropout = dropout
 
-        # STATE env paths
-        self.state_python = Path("/home/igor/miniconda3/envs/state/bin/python")
-        self.state_package_dir = Path("/home/igor/noise_scaling/modeling/STATE/state")
-        self.state_defaults_yaml = self.state_package_dir / "src" / "state" / "configs" / "state-defaults.yaml"
+        # STATE env paths — sourced from scaling_laws.paths so they're
+        # overridable via env vars (see paths.py / README env-var contract).
+        from scaling_laws.paths import STATE_PYTHON, STATE_PACKAGE_DIR, STATE_DEFAULTS_YAML
+        self.state_python = STATE_PYTHON
+        self.state_package_dir = STATE_PACKAGE_DIR
+        self.state_defaults_yaml = STATE_DEFAULTS_YAML
 
         # Preprocessing profile goes into preprocessed/state_data/ for each split
         self.profile_dir = self.train_data_path / "state_data"

@@ -60,7 +60,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import LabelEncoder
 
-DATA_ROOT = Path('/home/igor/noise_scaling/data')
+from scaling_laws.paths import DATA_DIR as DATA_ROOT
 SEED = 42
 N_WORKERS = 8
 MAX_SAMPLES = 100_000
