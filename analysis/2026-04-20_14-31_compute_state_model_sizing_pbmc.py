@@ -2,8 +2,13 @@
 
 Goal: study how STATE's training behavior scales with parameter count, holding
 data fixed at the largest available PBMC size and varying only architecture.
-We sweep 5 model configs spanning roughly 5M -> 100M transformer-body params
-(STATE's ~109M pe_embedding sits on top of all of them and is not scaled).
+We define 5 model configs centered on a CONTROL whose architecture matches
+the scaling_laws.algo.state.State defaults used by the production all-datasets
+run (analysis/2026-04-15_10-18_run_state_all_datasets.py): one config smaller
+than the control, the control itself, and three configs larger than it.
+This mirrors the HP-sweep pattern (analysis/2026-04-16_14-43_compute_state_
+hparam_sweep_pbmc.py) where one trial replicates production exactly so the
+sweep always includes a directly-comparable baseline curve.
 For each config we run all qualities on the largest dataset size.
 
 Architecture ratios are kept constant across configs:
@@ -12,10 +17,16 @@ Architecture ratios are kept constant across configs:
     output_dim  = emsize               (projector dim tracks model dim)
     pad_length  = 2048                 (constant — input length is data-driven)
 
-Only `nlayers` is chosen by hand to span the desired parameter range.
+Only `emsize` and `nlayers` vary; the CONTROL is `emsize=256, nlayers=3` to
+match State()'s defaults.
 
 Hyperparameters held fixed at STATE defaults across all configs (see
-state-defaults.yaml): max_lr, dropout, batch_size, weight_decay.
+scaling_laws/algo/state.py): max_lr=1e-4, dropout=0.1, batch_size=64,
+weight_decay=0.01.
+
+Smoke-test mode: if RUN_CONTROL_ONLY is True, only the CONTROL trial runs —
+same pattern as the HP sweep with N_TRIALS=0. Flip to False to run the full
+size sweep.
 
 Training protocol — matches scaling_laws/algo/state.py used by the HP-sweep
 and all-datasets runs:
@@ -30,8 +41,8 @@ and all-datasets runs:
       <trial>/loss/metrics.csv and best train/val/test scalars are written to
       train_loss.txt / val_loss.txt / test_loss.txt next to it
 
-Parallelism: 1 job per GPU across all visible GPUs (the larger configs need
-the headroom).
+Parallelism: JOBS_PER_GPU=2 across all visible GPUs (CONTROL fits comfortably;
+when running the full sweep with the larger configs, drop this to 1).
 
 Outputs:
     $NOISE_SCALING_OUTPUT_BASE/model_sizing/  (default ~/noise_scaling/data/other/model_sizing)
@@ -107,7 +118,7 @@ from scaling_laws.paths import DATA_DIR, OUTPUT_BASE
 OUTPUT_DIR = OUTPUT_BASE / "model_sizing"
 
 TRIAL_PREFIX = "model_sizing"
-JOBS_PER_GPU = 1  # 1/GPU on 40GB A100s — the larger configs need full headroom
+JOBS_PER_GPU = 2  # control config matches State defaults (~1.6M xfmr-body params), fits 2/GPU
 SEED = 42
 # Hard cap on total optimizer (gradient) steps per trial — same budget as the
 # HP sweep / all-datasets runs so loss curves are directly comparable.
@@ -116,8 +127,10 @@ VAL_CHECK_INTERVAL = 1000
 
 
 # ── Hyperparameters held fixed across all model sizes (STATE defaults) ─────
+# Match scaling_laws/algo/state.py constructor defaults so the CONTROL trial
+# is directly comparable to the production all-datasets run.
 FIXED_HPARAMS = {
-    "max_lr":       5e-4,
+    "max_lr":       1e-4,
     "dropout":      0.1,
     "batch_size":   64,
     "weight_decay": 0.01,
@@ -125,29 +138,43 @@ FIXED_HPARAMS = {
 
 
 # ── Model-size configurations ────────────────────────────────────────────
-# 5 configs spanning ~5M -> ~100M transformer-body params. Architecture ratios
-# are held constant: d_hid = 2*emsize, nhead = emsize/64, output_dim = emsize.
-# Only emsize and nlayers vary. pad_length stays at the data-driven default.
+# 5 configs centered on the CONTROL (emsize=256, nlayers=3 — State defaults):
+# one smaller, the control, and three larger. Architecture ratios held constant:
+# d_hid = 2*emsize, nhead = emsize/64, output_dim = emsize. pad_length=2048.
 #
-# Approximate transformer-body param counts (per layer ~ 12 * emsize^2 with
+# Approximate transformer-body param counts (per layer ~ 8 * emsize^2 with
 # d_hid = 2*emsize), excluding STATE's ~109M pe_embedding which is shared:
-#   trial 0 — emsize=192, nlayers=4   ~  1.8M   (smallest)
-#   trial 1 — emsize=320, nlayers=4   ~  4.9M
-#   trial 2 — emsize=448, nlayers=6   ~ 14.4M
-#   trial 3 — emsize=640, nlayers=8   ~ 39.3M
-#   trial 4 — emsize=896, nlayers=10  ~ 96.4M   (largest)
+#   trial 0 — emsize=128, nlayers=2   ~  0.26M  (smaller)
+#   trial 1 — emsize=256, nlayers=3   ~  1.57M  (CONTROL — State defaults)
+#   trial 2 — emsize=384, nlayers=4   ~  4.72M  (larger)
+#   trial 3 — emsize=512, nlayers=6   ~ 12.58M  (larger)
+#   trial 4 — emsize=768, nlayers=8   ~ 37.75M  (larger)
 MODEL_CONFIGS = [
-    {"emsize": 192, "d_hid":  384, "nhead":  3, "nlayers":  4, "output_dim": 192, "pad_length": 2048},
-    {"emsize": 320, "d_hid":  640, "nhead":  5, "nlayers":  4, "output_dim": 320, "pad_length": 2048},
-    {"emsize": 448, "d_hid":  896, "nhead":  7, "nlayers":  6, "output_dim": 448, "pad_length": 2048},
-    {"emsize": 640, "d_hid": 1280, "nhead": 10, "nlayers":  8, "output_dim": 640, "pad_length": 2048},
-    {"emsize": 896, "d_hid": 1792, "nhead": 14, "nlayers": 10, "output_dim": 896, "pad_length": 2048},
+    {"emsize": 128, "d_hid":  256, "nhead":  2, "nlayers":  2, "output_dim": 128, "pad_length": 2048},
+    {"emsize": 256, "d_hid":  512, "nhead":  4, "nlayers":  3, "output_dim": 256, "pad_length": 2048},
+    {"emsize": 384, "d_hid":  768, "nhead":  6, "nlayers":  4, "output_dim": 384, "pad_length": 2048},
+    {"emsize": 512, "d_hid": 1024, "nhead":  8, "nlayers":  6, "output_dim": 512, "pad_length": 2048},
+    {"emsize": 768, "d_hid": 1536, "nhead": 12, "nlayers":  8, "output_dim": 768, "pad_length": 2048},
 ]
+CONTROL_TRIAL_ID = 1  # index into MODEL_CONFIGS for the State-defaults config
+
+# Smoke-test mode: when True, only the CONTROL trial runs. Mirrors the HP
+# sweep's N_TRIALS=0 (production-replica-only) pattern so the first launch
+# validates the pipeline end-to-end against the production baseline before
+# committing GPU-hours to the larger configs.
+RUN_CONTROL_ONLY = True
 
 
 def generate_trials() -> list[dict]:
-    """Wrap MODEL_CONFIGS into trial dicts with sequential trial_ids."""
-    return [{"trial_id": i, **cfg} for i, cfg in enumerate(MODEL_CONFIGS)]
+    """Wrap MODEL_CONFIGS into trial dicts with sequential trial_ids.
+
+    If RUN_CONTROL_ONLY is True, returns only the CONTROL trial — same pattern
+    as the HP sweep's production-replica-only smoke test.
+    """
+    all_trials = [{"trial_id": i, **cfg} for i, cfg in enumerate(MODEL_CONFIGS)]
+    if RUN_CONTROL_ONLY:
+        return [t for t in all_trials if t["trial_id"] == CONTROL_TRIAL_ID]
+    return all_trials
 
 
 # ── Per-trial runner (executed in a subprocess) ─────────────────────────

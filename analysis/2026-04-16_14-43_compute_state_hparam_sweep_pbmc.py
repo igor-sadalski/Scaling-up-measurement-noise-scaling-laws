@@ -100,7 +100,7 @@ from scaling_laws.paths import DATA_DIR, OUTPUT_BASE
 # live under OUTPUT_DIR/<trial_name>/, independent of DATA_DIR.
 OUTPUT_DIR = OUTPUT_BASE / "hp_tunning"
 
-N_TRIALS = 8
+N_TRIALS = 0  # production-replica-only smoke test: only the appended PRODUCTION_CONFIG trial runs
 # Prefix for trial folder/yaml/log names. Change e.g. to "model_sizing" to
 # generate `model_sizing_00/sz100000/qQUAL/` and `model_sizing_00.yaml`.
 TRIAL_PREFIX = "hp_trial"
