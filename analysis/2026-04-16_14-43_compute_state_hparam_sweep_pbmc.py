@@ -100,11 +100,11 @@ from scaling_laws.paths import DATA_DIR, OUTPUT_BASE
 # live under OUTPUT_DIR/<trial_name>/, independent of DATA_DIR.
 OUTPUT_DIR = OUTPUT_BASE / "hp_tunning"
 
-N_TRIALS = 0  # production-replica-only smoke test: only the appended PRODUCTION_CONFIG trial runs
+N_TRIALS = 8  # 8 random HP draws + 1 appended PRODUCTION_CONFIG trial = 9 trials total
 # Prefix for trial folder/yaml/log names. Change e.g. to "model_sizing" to
 # generate `model_sizing_00/sz100000/qQUAL/` and `model_sizing_00.yaml`.
 TRIAL_PREFIX = "hp_trial"
-JOBS_PER_GPU = 1  # 1/GPU on 40GB A100s — STATE's 109M pe_embedding makes 2/GPU OOM
+JOBS_PER_GPU = 3  # 3/GPU on 80GB H100s (reduced from 4: batch_size=128 trials were OOMing)
 SEED = 42
 # Hard cap on total optimizer (gradient) steps per trial. Wired via STATE's
 # profiler path so Lightning's trainer.max_steps is honored. Matches the
@@ -137,7 +137,7 @@ SEARCH_SPACE = {
     "dropout":      ("choice", [0.0, 0.1, 0.2, 0.3]),
     "batch_size":   ("choice", [32, 64, 128]),
     # Optimizer
-    "max_lr":       ("choice", [1e-4, 5e-4, 1e-3, 5e-3]),
+    "max_lr":       ("choice", [1e-6, 1e-5, 5e-5, 1e-4, 5e-4, 1e-3]),
     "weight_decay": ("choice", [1e-4, 1e-3, 1e-2, 1e-1]),
 }
 

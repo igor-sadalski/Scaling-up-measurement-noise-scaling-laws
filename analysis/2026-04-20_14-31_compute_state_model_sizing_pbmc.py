@@ -118,7 +118,7 @@ from scaling_laws.paths import DATA_DIR, OUTPUT_BASE
 OUTPUT_DIR = OUTPUT_BASE / "model_sizing"
 
 TRIAL_PREFIX = "model_sizing"
-JOBS_PER_GPU = 2  # control config matches State defaults (~1.6M xfmr-body params), fits 2/GPU
+JOBS_PER_GPU = 1  # full sweep: largest config (emsize=768, nlayers=8) needs the whole 80GB H100
 SEED = 42
 # Hard cap on total optimizer (gradient) steps per trial — same budget as the
 # HP sweep / all-datasets runs so loss curves are directly comparable.
@@ -162,7 +162,7 @@ CONTROL_TRIAL_ID = 1  # index into MODEL_CONFIGS for the State-defaults config
 # sweep's N_TRIALS=0 (production-replica-only) pattern so the first launch
 # validates the pipeline end-to-end against the production baseline before
 # committing GPU-hours to the larger configs.
-RUN_CONTROL_ONLY = True
+RUN_CONTROL_ONLY = False
 
 
 def generate_trials() -> list[dict]:

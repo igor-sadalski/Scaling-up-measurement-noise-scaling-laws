@@ -73,7 +73,7 @@ import shutil
 import subprocess
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import numpy as np
@@ -112,7 +112,7 @@ print(f"Logging to {LOG_PATH}")
 from scaling_laws.paths import DATA_DIR, OUTPUT_BASE
 
 DATASET = "PBMC"
-SIZES = [100, 215, 464, 1000, 2154, 4641, 10000, 21544, 46415, 100000]
+SIZES = [100000]
 QUALITIES = [
     0.0012346,
     0.0025982,
@@ -134,20 +134,45 @@ PRETRAINED_DIR = OUTPUT_DIR / "pretrained" / "SE-100M"
 TRIAL_ID = 0
 TRIAL_PREFIX = "finetune"  # -> finetune_00/<size>/<quality>/
 
-# Fine-tune hyperparameters (held fixed across the grid)
-NUM_EPOCHS = 1               # user-selected: "just few epochs" -> 1
-FINETUNE_MAX_LR = 1e-5       # 10x below from-scratch lr
-VAL_CHECK_INTERVAL = 1000
-EARLY_STOP_PATIENCE = 5
+# Fine-tune hyperparameters. The "base" epoch/LR settings are scaled per (size,
+# quality) cell in ``run_one`` below — see the grid-aware block there.
+#
+# Prior values (1 epoch, 1e-5 max_lr, dropout 0.1) were suppressing MI:
+#  * 1e-5 is the SE-100M *pretraining* LR (state-defaults.yaml:236) — not
+#    "10x below", so step 0 of fine-tune re-entered pretrain regime and
+#    overwrote the representation before the MI probe could benefit.
+#  * 1 epoch at val_check_interval=1000 never gave StepBasedEarlyStopping
+#    (emb/train/trainer.py:153-161, patience=5) enough val windows to fire
+#    on cells < 10k cells; the sweep trained blind there.
+NUM_EPOCHS_BASE = 3          # fixed 3 epochs per user request (was 10, was 1)
+FINETUNE_MAX_LR = 1e-6       # was 1e-5 — now actually 10× below pretrain
+VAL_CHECK_INTERVAL = 1000    # cap; run_one clamps to batches_per_epoch//4
 BATCH_SIZE = 64
-DROPOUT = 0.1
+DROPOUT = 0.15               # was 0.1 — more regularisation at low q/size
+# Effective batch = BATCH_SIZE × GRAD_ACCUM_STEPS. SE-100M pretraining used
+# 128 × 8 = 1024 (state-defaults.yaml:215, 241). We match 1024 exactly via
+# 64 × 16 — 64 mini-batch stays within 80 GB VRAM at pad_length=2048;
+# 128 mini-batch would OOM given the ~69 GB we already see per job.
+GRAD_ACCUM_STEPS = 16        # was 4 — now matches SE-100M pretrain effective batch
+# SE-100M pretraining used dataset_correction=true with a 14418-class classifier
+# (see PRETRAINED_DIR/config.yaml:dataset.scbasecamp-cellxgene-tahoe-filtered.num_datasets).
+# We keep both settings during fine-tune so the pretrained state_dict loads clean.
+#
+# Why not flip dataset_correction=false? It changes binary_decoder's first
+# Linear input dim from (output_dim + d_model + 11) → (output_dim + d_model + 1)
+# (emb/nn/model.py:118-125), a shape mismatch that load_state_dict refuses even
+# with strict=False. Handling it properly requires either in-process loading
+# with ``StateEmbeddingModel.load_from_checkpoint(..., strict=False)`` (the
+# idiom in emb/finetune_decoder.py:94) or explicit state-dict surgery on
+# ``binary_decoder.0.intermediate_dense.weight``. Both out of scope for now.
+PRETRAIN_NUM_DATASETS = 14418
 
 # Parallelism: ONE constant to bump if you have VRAM headroom.
 #
 # SE-100M at batch_size=64 + pad_length=2048 uses ~10-12 GB per job. On a 24 GB
 # GPU, 2/GPU is usually fine (try it and watch ``nvidia-smi``). On an 80 GB
 # A100, 4-6/GPU works.
-JOBS_PER_GPU = 2
+JOBS_PER_GPU = 1
 
 
 # ── Pretrained model setup ──────────────────────────────────────────────
@@ -179,16 +204,28 @@ def locate_pretrained(pretrained_dir: Path) -> dict:
     """Return {'ckpt', 'config', 'embeddings', 'arch'} from the HF snapshot.
 
     Policy:
-      * ckpt: the single ``*.ckpt`` file (or the largest by size if multiple).
+      * ckpt: prefer ``*.ckpt``, fall back to ``model.safetensors`` /
+        ``*.safetensors`` (the format SE-100M ships in on HuggingFace).
       * config: ``config.yaml`` at the root, or the first ``*.yaml`` found.
-      * embeddings: any ``all_embeddings*.pt`` in the snapshot, or — if the
-        config references an ``embeddings.<current>.all_embeddings`` path we
-        can resolve *inside* the snapshot — use that. Fails loudly if neither.
+      * embeddings: any ``all_embeddings*.pt``, ``protein_embeddings*.pt``,
+        ``*gene_symbol_to_embedding*.pt`` or ``*gene_embeddings*.pt`` in the
+        snapshot; or the path referenced by the config's
+        ``embeddings.<current>.all_embeddings`` if resolvable locally.
       * arch: parsed from the config's ``model`` section.
     """
-    ckpts = sorted(pretrained_dir.rglob("*.ckpt"), key=lambda p: p.stat().st_size, reverse=True)
+    # Exclude our own derived ``finetune_init.ckpt`` — it is the OUTPUT of
+    # ``build_finetune_init_ckpt``, not a source. Picking it up here would feed
+    # the derived file back into itself on subsequent runs.
+    ckpts = [p for p in sorted(pretrained_dir.rglob("*.ckpt"),
+                               key=lambda p: p.stat().st_size, reverse=True)
+             if p.name != "finetune_init.ckpt"]
     if not ckpts:
-        raise FileNotFoundError(f"No *.ckpt under {pretrained_dir} — HF download failed?")
+        ckpts = sorted(pretrained_dir.rglob("*.safetensors"),
+                       key=lambda p: p.stat().st_size, reverse=True)
+    if not ckpts:
+        raise FileNotFoundError(
+            f"No *.ckpt or *.safetensors under {pretrained_dir} — HF download failed?"
+        )
     ckpt = ckpts[0]
 
     # Prefer ``config.yaml`` at root; fall back to any yaml in the snapshot.
@@ -205,9 +242,13 @@ def locate_pretrained(pretrained_dir: Path) -> dict:
     with open(cfg_path) as f:
         cfg = yaml.safe_load(f) or {}
 
-    # Gene embeddings file: look for an ``all_embeddings*.pt`` inside the snapshot.
+    # Gene embeddings file: accept the common Arc Institute naming conventions.
+    # SE-100M on HuggingFace ships ``protein_embeddings.pt`` (dict of gene_symbol
+    # -> ESM-2 tensor), which is functionally the ``all_embeddings`` input that
+    # ``state emb preprocess --all-embeddings`` expects.
     emb_candidates = (
         list(pretrained_dir.rglob("all_embeddings*.pt"))
+        + list(pretrained_dir.rglob("protein_embeddings*.pt"))
         + list(pretrained_dir.rglob("*gene_symbol_to_embedding*.pt"))
         + list(pretrained_dir.rglob("*gene_embeddings*.pt"))
     )
@@ -262,32 +303,62 @@ def locate_pretrained(pretrained_dir: Path) -> dict:
 
 
 def build_finetune_init_ckpt(orig_ckpt: Path, init_ckpt: Path) -> None:
-    """Write a weights-only ckpt at ``init_ckpt``.
+    """Write a weights-only Lightning ckpt at ``init_ckpt``.
 
-    We strip optimizer states, LR-scheduler states, epoch/global_step counters,
-    and callback states so Lightning's auto-resume loads only model weights.
-    Effect: trainer behaves as ``trainer.fit(..., ckpt_path=init_ckpt)``
-    starting from epoch 0 with a fresh OneCycleLR.
+    Accepts either:
+      * Lightning ``*.ckpt`` (wrapped dict with ``state_dict``) — strip
+        trainer/optimizer state so Lightning resumes weights only.
+      * HF ``*.safetensors`` (flat tensor dict) — wrap as a Lightning ckpt.
+
+    In both cases, keys prefixed with ``dataset_`` are dropped: SE-100M was
+    pretrained with ``model.dataset_correction=true`` (multi-dataset batch
+    correction head), but our PBMC fine-tune sets ``dataset_correction=false``
+    so the model won't have those attributes and strict state_dict loading
+    would otherwise fail on unexpected keys.
     """
     import torch
     if init_ckpt.exists():
         print(f"  [init-ckpt] Stripped ckpt already at {init_ckpt}; skipping.")
         return
-    print(f"  [init-ckpt] Stripping {orig_ckpt} -> {init_ckpt}")
-    raw = torch.load(str(orig_ckpt), map_location="cpu", weights_only=False)
+    print(f"  [init-ckpt] Building weights-only ckpt {init_ckpt} from {orig_ckpt.name}")
+
+    if orig_ckpt.suffix == ".safetensors":
+        from safetensors.torch import load_file
+        state_dict = load_file(str(orig_ckpt))
+        pl_version = "2.0.0"
+    else:
+        raw = torch.load(str(orig_ckpt), map_location="cpu", weights_only=False)
+        state_dict = raw["state_dict"] if "state_dict" in raw else raw
+        pl_version = raw.get("pytorch-lightning_version", "2.0.0")
+
+    # SE-100M was trained with model.dataset_correction=true (z_dim_ds=10, 14418
+    # dataset classes). We replicate that config during fine-tune so every
+    # state_dict shape matches under Lightning's strict=True load. The downstream
+    # fine-tune still only sees our PBMC manifest (2 dataset names), but the
+    # classifier simply gets a meaningless label signal that doesn't crash
+    # training — the encoder stack (which produces the cell embeddings we
+    # actually measure MI on) gets useful gradients from the reconstruction loss.
+    # No state_dict stripping needed.
+    print(f"  [init-ckpt] Keeping all {len(state_dict)} keys "
+          f"(fine-tune runs with dataset_correction=true to match SE-100M).")
+
     stripped = {
-        "state_dict": raw["state_dict"] if "state_dict" in raw else raw,
+        "state_dict": state_dict,
         "epoch": 0,
         "global_step": 0,
-        "pytorch-lightning_version": raw.get("pytorch-lightning_version", "2.0.0"),
+        "pytorch-lightning_version": pl_version,
         # Missing keys below are re-initialised from the Hydra config at fit time.
         "optimizer_states": [],
         "lr_schedulers": [],
-        "callbacks": {},
-        "loops": {},
+        # NB: we deliberately omit ``loops`` and ``callbacks``. Lightning's
+        # checkpoint_connector.restore_loops() does
+        # ``state_dict = self._loaded_checkpoint.get("loops")`` and skips the
+        # whole block if it's None. An empty dict ``{}`` triggers a
+        # ``KeyError: 'fit_loop'`` at restore_loops() line 345.
     }
     init_ckpt.parent.mkdir(parents=True, exist_ok=True)
     torch.save(stripped, str(init_ckpt))
+    print(f"  [init-ckpt] Wrote {len(state_dict)} state_dict keys -> {init_ckpt}")
 
 
 # ── PBMC state_data profile keyed on the pretrained gene vocabulary ─────
@@ -313,7 +384,19 @@ def prepare_pbmc_state_profile_pretrained(
     profile_name = f"finetune_PBMC_{size}_{quality}".replace(".", "_")
     profile_dir = trial_dir / "state_data"
     marker = profile_dir / f"all_embeddings_{profile_name}.pt"
+    config_path = profile_dir / f"state_config_{profile_name}.yaml"
+
+    # Fast path: preprocess artifacts already on disk. Still patch num_datasets
+    # in the cached config so it matches SE-100M (earlier versions wrote 2).
     if marker.exists():
+        if config_path.exists():
+            with open(config_path) as f:
+                cfg_doc = yaml.safe_load(f)
+            nd = cfg_doc.get("dataset", {}).get(profile_name, {}).get("num_datasets")
+            if nd != 14418:
+                cfg_doc["dataset"][profile_name]["num_datasets"] = 14418
+                with open(config_path, "w") as f:
+                    yaml.safe_dump(cfg_doc, f, sort_keys=False)
         return profile_dir, profile_name
 
     profile_dir.mkdir(parents=True, exist_ok=True)
@@ -336,7 +419,6 @@ def prepare_pbmc_state_profile_pretrained(
 
     # Copy defaults, then point state emb preprocess at our copy — state emb
     # preprocess mutates the file in-place to register the new profile.
-    config_path = profile_dir / f"state_config_{profile_name}.yaml"
     shutil.copy(STATE_DEFAULTS_YAML, config_path)
 
     cmd = [
@@ -362,9 +444,11 @@ def prepare_pbmc_state_profile_pretrained(
     val_only_out = profile_dir / f"val_only_{profile_name}.csv"
     df_val.to_csv(val_only_out, index=False)
     cfg_doc["dataset"][profile_name]["val"] = str(val_only_out)
-    cfg_doc["dataset"][profile_name]["num_datasets"] = (
-        len(pd.read_csv(cfg_doc["dataset"][profile_name]["train"])) + len(df_val)
-    )
+    # Must match SE-100M pretraining. The `dataset_encoder` classifier head has
+    # shape (d_model, num_datasets); mismatching this dim makes strict ckpt load
+    # fail. 14418 corresponds to the `scbasecamp-cellxgene-tahoe-filtered`
+    # profile the model was pretrained on.
+    cfg_doc["dataset"][profile_name]["num_datasets"] = 14418
     with open(config_path, "w") as f:
         yaml.safe_dump(cfg_doc, f, sort_keys=False)
 
@@ -383,6 +467,17 @@ def run_one(size: int, quality: float, device: int, pretrained: dict) -> dict:
     trial_dir.mkdir(parents=True, exist_ok=True)
 
     arch = pretrained["arch"]
+
+    # Grid-aware hyperparameters. Kept for lr/dropout/weight_decay only —
+    # epoch count is now fixed at NUM_EPOCHS_BASE (per user request, no
+    # scaling) and early stopping is disabled so each cell trains the full
+    # 3 epochs regardless of dataset size.
+    size_factor   = min(1.0, size / 10_000)                                  # 100k→1.0, 10k→1.0, 1k→0.1, 100→0.01
+    max_lr_cell   = FINETUNE_MAX_LR * max(0.3, size_factor ** 0.5)           # √size scaling, floor at 0.3×
+    max_epochs    = NUM_EPOCHS_BASE                                           # fixed 3 epochs per cell
+    dropout_cell  = DROPOUT if size >= 10_000 else 0.2
+    weight_decay  = 0.01 if size >= 10_000 else 0.05
+
     cfg_doc = {
         "trial_id": TRIAL_ID,
         "trial_name": trial_name,
@@ -393,11 +488,14 @@ def run_one(size: int, quality: float, device: int, pretrained: dict) -> dict:
         "device": int(device),
         "arch": arch,
         "hparams": {
-            "num_epochs": NUM_EPOCHS,
-            "max_lr": FINETUNE_MAX_LR,
+            "num_epochs": max_epochs,
+            "max_lr": max_lr_cell,
             "batch_size": BATCH_SIZE,
-            "dropout": DROPOUT,
-            "early_stop_patience": EARLY_STOP_PATIENCE,
+            "grad_accum_steps": GRAD_ACCUM_STEPS,
+            "effective_batch": BATCH_SIZE * GRAD_ACCUM_STEPS,
+            "dropout": dropout_cell,
+            "weight_decay": weight_decay,
+            "early_stopping": False,
             "val_check_interval": VAL_CHECK_INTERVAL,
         },
         "pretrained": {
@@ -428,7 +526,13 @@ def run_one(size: int, quality: float, device: int, pretrained: dict) -> dict:
             # in 2026-04-20_14-31_compute_state_model_sizing_pbmc.py).
             self.model_path = trial_dir
             self.model_path.mkdir(parents=True, exist_ok=True)
-            self.save_folder_path = self.model_path.parent
+            # NB: save_folder_path must include the quality component — the
+            # base ``State.embed()`` (scaling_laws/src/scaling_laws/algo/state.py:407)
+            # writes ``save_folder_path / model_name / embeddings.npy``, and
+            # when ``save_folder_path = model_path.parent`` the quality subdir
+            # disappears and all 10 parallel cells race on the same file
+            # (observed symptom: partial-write reshape errors mid-sweep).
+            self.save_folder_path = self.model_path
             self.embeddings_path = self.model_path / "embeddings.csv"
             self.test_loss_path = self.model_path / "test_loss.txt"
             self.checkpoint_dir = self.model_path / "checkpoints"
@@ -463,11 +567,17 @@ def run_one(size: int, quality: float, device: int, pretrained: dict) -> dict:
             train_h5ad = self.train_data_path / "preprocessed.h5ad"
             num_cells = int(ad.read_h5ad(train_h5ad, backed="r").shape[0])
             batches_per_epoch = max(1, num_cells // self.batch_size)
-            val_interval = VAL_CHECK_INTERVAL
-            max_epochs = NUM_EPOCHS
+            # Match from-scratch STATE (scaling_laws/algo/state.py:131): val + checkpoint
+            # every 1000 optimizer steps. Note that at 3 epochs × 98 opt-steps/epoch ≈
+            # 293 total optimizer steps, no val window fires during training — the best
+            # checkpoint falls back to the end-of-training *_final.pt that Lightning
+            # writes at shutdown (emb/train/trainer.py:218). Raise NUM_EPOCHS_BASE to
+            # ≥11 epochs if you want at least one val window during training.
+            val_interval = 1000
 
             print(f"  [{trial_name}] {num_cells} cells, ~{batches_per_epoch} batches/epoch, "
-                  f"val every {val_interval} steps, {max_epochs} epoch(s), max_lr={FINETUNE_MAX_LR}")
+                  f"val every {val_interval} steps, {max_epochs} epoch(s), "
+                  f"max_lr={max_lr_cell:.2e}, dropout={dropout_cell}, wd={weight_decay}")
 
             cmd = [
                 str(self.state_python), "-m", "state", "emb", "fit",
@@ -490,13 +600,27 @@ def run_one(size: int, quality: float, device: int, pretrained: dict) -> dict:
                 f"model.nhead={self.nhead}",
                 f"model.nlayers={self.nlayers}",
                 f"model.output_dim={self.output_dim}",
-                "model.dataset_correction=false",
-                f"model.dropout={self.dropout}",
-                # Optimizer — low LR; ResumeCallback resets the param-group LR at
-                # train start (STATE/state/src/state/emb/train/callbacks.py:225).
-                f"optimizer.max_lr={FINETUNE_MAX_LR}",
-                "optimizer.gradient_accumulation_steps=1",
-                "optimizer.weight_decay=0.01",
+                # Must match SE-100M pretraining (dataset_correction=true,
+                # num_datasets=14418 for scbasecamp-cellxgene-tahoe-filtered).
+                # With dataset_correction=false the binary_decoder is built as
+                # (output_dim + d_model + 1) instead of (... + 11) and
+                # Lightning's strict state_dict load rejects the ckpt. The
+                # matching num_datasets=14418 is injected into the profile's
+                # dataset.<profile>.num_datasets in prepare_pbmc_state_profile_pretrained.
+                "model.dataset_correction=true",
+                f"model.dropout={dropout_cell}",
+                # Optimizer: fine-tune at 1e-6 (10× below pretrain's 1e-5 from
+                # state-defaults.yaml:236). start=end=1.0 collapses LinearLR
+                # warmup (emb/nn/model.py:472-477) so the schedule is pure
+                # cosine decay instead of a 33%→100% ramp-up that would
+                # overshoot at fine-tune scale. grad_accum=16 brings effective
+                # batch to 64×16=1024 — matches SE-100M pretrain
+                # (batch=128, grad_accum=8, effective=1024).
+                f"optimizer.max_lr={max_lr_cell}",
+                "optimizer.start=1.0",
+                "optimizer.end=1.0",
+                f"optimizer.gradient_accumulation_steps={GRAD_ACCUM_STEPS}",
+                f"optimizer.weight_decay={weight_decay}",
                 "optimizer.reset_lr_on_restart=true",
                 # Experiment
                 f"experiment.name=state_{self.profile_name}",
@@ -510,19 +634,22 @@ def run_one(size: int, quality: float, device: int, pretrained: dict) -> dict:
                 f"experiment.checkpoint.path={self.checkpoint_dir}",
                 f"experiment.checkpoint.every_n_train_steps={val_interval}",
                 "experiment.checkpoint.monitor=validation/val_loss",
+                # Match from-scratch (scaling_laws/algo/state.py:193-194): keep every
+                # ckpt, don't auto-write last.ckpt. The base ``State.embed()`` uses
+                # ``_find_best_checkpoint()`` which argmins val_loss in metrics.csv
+                # and falls back to the end-of-training *_final.pt when no val window
+                # fires (relevant here because 3 epochs × 98 opt-steps = 293 < 1000).
                 "experiment.checkpoint.save_top_k=-1",
                 "+experiment.checkpoint.save_last=false",
                 # Disable external loggers + extra validations
                 "wandb.enable=false",
                 "validations.diff_exp.enable=false",
                 "validations.perturbation.enable=false",
-                # Early stopping
-                "experiment.early_stopping.enable=true",
-                "experiment.early_stopping.monitor=validation/val_loss",
-                f"experiment.early_stopping.patience={EARLY_STOP_PATIENCE}",
-                f"+experiment.early_stopping.every_n_steps={val_interval}",
-                "experiment.early_stopping.min_delta=0.0",
-                "experiment.early_stopping.mode=min",
+                # Early stopping DISABLED — run the full fixed 3-epoch budget.
+                # Previous sweep observed StepBasedEarlyStopping firing after
+                # ~1.28 epochs (step 500 with defaults 500/3) which cut training
+                # short. Disable it entirely so max_epochs is the only cap.
+                "experiment.early_stopping.enable=false",
             ]
             try:
                 subprocess.run(cmd, cwd=str(self.state_package_dir), env=env, check=True)
@@ -543,8 +670,8 @@ def run_one(size: int, quality: float, device: int, pretrained: dict) -> dict:
             nlayers=arch["nlayers"],
             output_dim=arch["output_dim"],
             batch_size=BATCH_SIZE,
-            max_lr=FINETUNE_MAX_LR,
-            dropout=arch["dropout"],
+            max_lr=max_lr_cell,
+            dropout=dropout_cell,
         )
         # Override the profile_name so train() / _check_preprocessed see the
         # SE-100M profile we built in the parent process.
@@ -620,16 +747,23 @@ def main():
     print(f"All {len(SIZES)} x {len(QUALITIES)} (size, quality) h5ads verified.")
 
     # 3. Rebuild the state_data profile at each (size, quality) using the
-    # pretrained model's gene vocabulary. Sequential because it is fast and
-    # avoids concurrent writes into the same profile_dir.
-    print("\nBuilding SE-100M-vocab state_data profiles (sequential)...")
-    for size in tqdm(SIZES, desc="profile sizes", unit="size"):
-        for quality in QUALITIES:
-            trial_dir = OUTPUT_DIR / f"{TRIAL_PREFIX}_{TRIAL_ID:02d}" / str(size) / str(quality)
-            trial_dir.mkdir(parents=True, exist_ok=True)
-            prepare_pbmc_state_profile_pretrained(
-                size, quality, pretrained["embeddings"], trial_dir,
-            )
+    # pretrained model's gene vocabulary. Each cell writes into its own
+    # trial_dir/state_data/ so parallel builds don't collide; the heavy lifting
+    # is a subprocess call to `state emb preprocess` which releases the GIL.
+    profile_jobs = [(s, q) for s in SIZES for q in QUALITIES]
+    profile_workers = min(len(profile_jobs), (os.cpu_count() or 4))
+    print(f"\nBuilding SE-100M-vocab state_data profiles (parallel, workers={profile_workers})...")
+
+    def _build_profile(sq):
+        s, q = sq
+        td = OUTPUT_DIR / f"{TRIAL_PREFIX}_{TRIAL_ID:02d}" / str(s) / str(q)
+        td.mkdir(parents=True, exist_ok=True)
+        prepare_pbmc_state_profile_pretrained(s, q, pretrained["embeddings"], td)
+
+    with ThreadPoolExecutor(max_workers=profile_workers) as pex:
+        futs = [pex.submit(_build_profile, sq) for sq in profile_jobs]
+        for fut in tqdm(as_completed(futs), total=len(futs), desc="profiles", unit="cell"):
+            fut.result()  # re-raise any error
 
     # 4. Schedule the fine-tune grid across GPUs.
     gpus = detect_gpus()
