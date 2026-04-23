@@ -170,26 +170,35 @@ FIXED_HPARAMS = {
 MODEL_CONFIGS = [
     {"num_embed_dim":  32, "intermed_size":   64, "num_attn_heads":  1, "num_layers": 1, "max_input_size": 512},
     {"num_embed_dim":  64, "intermed_size":  128, "num_attn_heads":  1, "num_layers": 2, "max_input_size": 512},
-    # {"num_embed_dim": 128, "intermed_size":  256, "num_attn_heads":  2, "num_layers": 2, "max_input_size": 512},
-    # {"num_embed_dim": 256, "intermed_size":  512, "num_attn_heads":  4, "num_layers": 3, "max_input_size": 512},
-    # {"num_embed_dim": 384, "intermed_size":  768, "num_attn_heads":  6, "num_layers": 4, "max_input_size": 512},
-    # {"num_embed_dim": 512, "intermed_size": 1024, "num_attn_heads":  8, "num_layers": 6, "max_input_size": 512},
-    # {"num_embed_dim": 768, "intermed_size": 1536, "num_attn_heads": 12, "num_layers": 8, "max_input_size": 512},
+    {"num_embed_dim": 128, "intermed_size":  256, "num_attn_heads":  2, "num_layers": 2, "max_input_size": 512},
+    {"num_embed_dim": 256, "intermed_size":  512, "num_attn_heads":  4, "num_layers": 3, "max_input_size": 512},
+    {"num_embed_dim": 384, "intermed_size":  768, "num_attn_heads":  6, "num_layers": 4, "max_input_size": 512},
+    {"num_embed_dim": 512, "intermed_size": 1024, "num_attn_heads":  8, "num_layers": 6, "max_input_size": 512},
+    {"num_embed_dim": 768, "intermed_size": 1536, "num_attn_heads": 12, "num_layers": 8, "max_input_size": 512},
 ]
 CONTROL_TRIAL_ID = 3  # index into MODEL_CONFIGS for the Geneformer-defaults config
 
 # Smoke-test mode: when True, only the CONTROL trial runs.
 RUN_CONTROL_ONLY = False
 
+# Subset filter: when set, only trial_ids in this set are run (others assumed
+# already on disk). Set to None to run the full 7-config sweep. Keeping the
+# canonical 7-entry MODEL_CONFIGS ensures trial_id numbering stays aligned
+# with arch identity even when only a subset is (re)computed.
+TRIAL_IDS_TO_RUN: set[int] | None = {2, 3}
+
 
 def generate_trials() -> list[dict]:
     """Wrap MODEL_CONFIGS into trial dicts with sequential trial_ids.
 
     If RUN_CONTROL_ONLY is True, returns only the CONTROL trial.
+    If TRIAL_IDS_TO_RUN is set, returns only those trial_ids.
     """
     all_trials = [{"trial_id": i, **cfg} for i, cfg in enumerate(MODEL_CONFIGS)]
     if RUN_CONTROL_ONLY:
         return [t for t in all_trials if t["trial_id"] == CONTROL_TRIAL_ID]
+    if TRIAL_IDS_TO_RUN is not None:
+        return [t for t in all_trials if t["trial_id"] in TRIAL_IDS_TO_RUN]
     return all_trials
 
 
