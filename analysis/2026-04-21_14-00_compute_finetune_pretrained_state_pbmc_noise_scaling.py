@@ -112,7 +112,7 @@ print(f"Logging to {LOG_PATH}")
 from scaling_laws.paths import DATA_DIR, OUTPUT_BASE
 
 DATASET = "PBMC"
-SIZES = [100000]
+SIZES = [100, 215, 464, 1000, 2154, 4641, 10000, 21544, 46415, 100000]
 QUALITIES = [
     0.0012346,
     0.0025982,

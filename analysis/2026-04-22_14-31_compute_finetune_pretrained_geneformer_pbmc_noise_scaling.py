@@ -17,7 +17,7 @@ Geneformer. Continues MLM pretraining of ``ctheodoris/Geneformer`` (Geneformer-V
 Layout mirrors the STATE fine-tune script so the plotting notebook can reuse
 the same collection logic:
 
-    $NOISE_SCALING_OUTPUT_BASE/finetunning_geneformer/finetune_00/<size>/<quality>/
+    $NOISE_SCALING_OUTPUT_BASE/model_sizing/geneformer/finetune_00/<size>/<quality>/
         config.json
         result.json
         tokenized/          # train tokenized dataset
@@ -137,7 +137,7 @@ HF_MODEL_ID = "ctheodoris/Geneformer"
 # We reuse the in-repo ``Geneformer/`` dir as the local snapshot target so
 # ``BertForMaskedLM.from_pretrained(GENEFORMER_DIR)`` / dictionary lookups Just Work.
 PRETRAINED_DIR = GENEFORMER_DIR
-OUTPUT_DIR = OUTPUT_BASE / "finetunning_geneformer"
+OUTPUT_DIR = OUTPUT_BASE / "model_sizing" / "geneformer"
 TRIAL_ID = 0
 TRIAL_PREFIX = "finetune"  # -> finetune_00/<size>/<quality>/
 

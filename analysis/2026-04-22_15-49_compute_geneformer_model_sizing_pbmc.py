@@ -2,10 +2,11 @@
 
 Goal: study how Geneformer's training behavior scales with parameter count,
 holding data fixed at the largest available PBMC size and varying only
-architecture. We define 5 model configs centered on a CONTROL whose
+architecture. We define 7 model configs centered on a CONTROL whose
 architecture matches the scaling_laws.algo.geneformer.Geneformer defaults
-used by the production all-datasets run: one config smaller than the
-control, the control itself, and three configs larger than it.
+used by the production all-datasets run: three configs smaller than the
+control (the two smallest are intentionally tiny to probe where the
+scaling law breaks), the control itself, and three configs larger than it.
 
 Mirrors the STATE sweep (analysis/2026-04-20_14-31_compute_state_model_sizing_
 pbmc.py). For each config we run all qualities on the largest dataset size.
@@ -118,11 +119,11 @@ from scaling_laws.paths import DATA_DIR, OUTPUT_BASE
 OUTPUT_DIR = OUTPUT_BASE / "model_sizing_geneformer"
 
 TRIAL_PREFIX = "model_sizing_geneformer"
-JOBS_PER_GPU = 1
+JOBS_PER_GPU = 2
 SEED = 42
 # Hard cap on total optimizer (gradient) steps per trial -- same budget as the
 # STATE model-size sweep so loss curves are directly comparable across algos.
-OPTIMIZER_STEPS = 15000
+OPTIMIZER_STEPS = 40_000
 EVAL_SAVE_STEPS = 1000
 LOG_EVERY_N_STEPS = 10
 
@@ -147,28 +148,35 @@ FIXED_HPARAMS = {
 
 
 # -- Model-size configurations ------------------------------------------
-# 5 configs centered on the CONTROL (num_embed_dim=256, num_layers=3 --
-# Geneformer defaults): one smaller, the control, and three larger.
-# Architecture ratios held constant: intermed_size = 2*num_embed_dim,
-# num_attn_heads = num_embed_dim / 64 (head dim = 64 everywhere),
-# max_input_size = 512.
+# 7 configs centered on the CONTROL (num_embed_dim=256, num_layers=3 --
+# Geneformer defaults): three smaller (two of them tiny, to probe where the
+# scaling law breaks), the control, and three larger.
+# Architecture ratios held constant for the main sweep: intermed_size =
+# 2*num_embed_dim, num_attn_heads = num_embed_dim / 64 (head dim = 64),
+# max_input_size = 512. The two tiniest configs (trial 0, trial 1) break the
+# head_dim=64 invariant on purpose so the model can get small enough to
+# expose a regime change.
 #
 # Approximate BERT body param counts (excluding embeddings layer):
 # per-layer body ~ 12 * hidden^2 (standard BertLayer with intermed=2*hidden),
 # so body params ~ 12 * num_embed_dim^2 * num_layers.
-#   trial 0 -- num_embed_dim=128, num_layers=2  ~  0.39M body params (smaller)
-#   trial 1 -- num_embed_dim=256, num_layers=3  ~  2.36M body params (CONTROL -- Geneformer defaults)
-#   trial 2 -- num_embed_dim=384, num_layers=4  ~  7.08M body params (larger)
-#   trial 3 -- num_embed_dim=512, num_layers=6  ~ 18.87M body params (larger)
-#   trial 4 -- num_embed_dim=768, num_layers=8  ~ 56.62M body params (larger)
+#   trial 0 -- num_embed_dim= 32, num_layers=1  ~  0.012M body params (tiny -- expected to break scaling)
+#   trial 1 -- num_embed_dim= 64, num_layers=2  ~  0.098M body params (very small)
+#   trial 2 -- num_embed_dim=128, num_layers=2  ~  0.39M  body params (smaller)
+#   trial 3 -- num_embed_dim=256, num_layers=3  ~  2.36M  body params (CONTROL -- Geneformer defaults)
+#   trial 4 -- num_embed_dim=384, num_layers=4  ~  7.08M  body params (larger)
+#   trial 5 -- num_embed_dim=512, num_layers=6  ~ 18.87M  body params (larger)
+#   trial 6 -- num_embed_dim=768, num_layers=8  ~ 56.62M  body params (larger)
 MODEL_CONFIGS = [
-    {"num_embed_dim": 128, "intermed_size":  256, "num_attn_heads":  2, "num_layers": 2, "max_input_size": 512},
-    {"num_embed_dim": 256, "intermed_size":  512, "num_attn_heads":  4, "num_layers": 3, "max_input_size": 512},
-    {"num_embed_dim": 384, "intermed_size":  768, "num_attn_heads":  6, "num_layers": 4, "max_input_size": 512},
-    {"num_embed_dim": 512, "intermed_size": 1024, "num_attn_heads":  8, "num_layers": 6, "max_input_size": 512},
-    {"num_embed_dim": 768, "intermed_size": 1536, "num_attn_heads": 12, "num_layers": 8, "max_input_size": 512},
+    {"num_embed_dim":  32, "intermed_size":   64, "num_attn_heads":  1, "num_layers": 1, "max_input_size": 512},
+    {"num_embed_dim":  64, "intermed_size":  128, "num_attn_heads":  1, "num_layers": 2, "max_input_size": 512},
+    # {"num_embed_dim": 128, "intermed_size":  256, "num_attn_heads":  2, "num_layers": 2, "max_input_size": 512},
+    # {"num_embed_dim": 256, "intermed_size":  512, "num_attn_heads":  4, "num_layers": 3, "max_input_size": 512},
+    # {"num_embed_dim": 384, "intermed_size":  768, "num_attn_heads":  6, "num_layers": 4, "max_input_size": 512},
+    # {"num_embed_dim": 512, "intermed_size": 1024, "num_attn_heads":  8, "num_layers": 6, "max_input_size": 512},
+    # {"num_embed_dim": 768, "intermed_size": 1536, "num_attn_heads": 12, "num_layers": 8, "max_input_size": 512},
 ]
-CONTROL_TRIAL_ID = 1  # index into MODEL_CONFIGS for the Geneformer-defaults config
+CONTROL_TRIAL_ID = 3  # index into MODEL_CONFIGS for the Geneformer-defaults config
 
 # Smoke-test mode: when True, only the CONTROL trial runs.
 RUN_CONTROL_ONLY = False
