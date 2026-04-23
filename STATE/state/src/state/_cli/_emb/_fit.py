@@ -17,6 +17,19 @@ def run_emb_fit(cfg, args):
     import os
     import sys
 
+    # Lightning 2.6+ calls torch.load(ckpt_path, weights_only=None) on resume,
+    # and torch 2.6+ treats None-or-True as "safe mode" which rejects the
+    # pickled ModelCheckpoint metadata (class refs) inside Lightning ckpts.
+    # `setdefault` isn't enough because weights_only=None is explicitly passed
+    # — we have to overwrite it. These are our own ckpts, so forcing False in
+    # the STATE subprocess is safe.
+    import torch as _torch
+    _orig_torch_load = _torch.load
+    def _loose_load(*a, **kw):
+        kw["weights_only"] = False
+        return _orig_torch_load(*a, **kw)
+    _torch.load = _loose_load
+
     from omegaconf import OmegaConf
 
     from ...emb.train.trainer import main as trainer_main

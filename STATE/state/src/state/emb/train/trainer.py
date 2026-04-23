@@ -153,6 +153,7 @@ def main(cfg):
     es_cfg = getattr(cfg.experiment, "early_stopping", None)
     if es_cfg is not None and getattr(es_cfg, "enable", False):
         every_n_steps = int(getattr(es_cfg, "every_n_steps", 500))
+        min_steps = int(getattr(es_cfg, "min_steps", 0))
         early_stop_cb = StepBasedEarlyStopping(
             monitor=getattr(es_cfg, "monitor", "validation/val_loss"),
             every_n_steps=every_n_steps,
@@ -160,11 +161,13 @@ def main(cfg):
             min_delta=float(getattr(es_cfg, "min_delta", 0.0)),
             mode=getattr(es_cfg, "mode", "min"),
             verbose=True,
+            min_steps=min_steps,
         )
         callbacks.append(early_stop_cb)
         print(
             f"  Step-based early stopping: monitor={es_cfg.monitor}, "
-            f"every_n_steps={every_n_steps}, patience={es_cfg.patience}"
+            f"every_n_steps={every_n_steps}, patience={es_cfg.patience}, "
+            f"min_steps={min_steps}"
         )
 
     if getattr(cfg.model, "ema", False):

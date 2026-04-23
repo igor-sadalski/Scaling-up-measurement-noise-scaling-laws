@@ -42,6 +42,7 @@ class StepBasedEarlyStopping(L.Callback):
         min_delta: float = 0.0,
         mode: str = "min",
         verbose: bool = True,
+        min_steps: int = 0,
     ):
         super().__init__()
         if mode not in ("min", "max"):
@@ -50,12 +51,19 @@ class StepBasedEarlyStopping(L.Callback):
             raise ValueError(f"every_n_steps must be >= 1, got {every_n_steps}")
         if patience < 1:
             raise ValueError(f"patience must be >= 1, got {patience}")
+        if min_steps < 0:
+            raise ValueError(f"min_steps must be >= 0, got {min_steps}")
         self.monitor = monitor
         self.every_n_steps = int(every_n_steps)
         self.patience = int(patience)
         self.min_delta = float(min_delta) if mode == "max" else -float(min_delta)
         self.mode = mode
         self.verbose = verbose
+        # Warm-up window: ES checks are no-ops while global_step < min_steps,
+        # so the model is guaranteed to train for at least min_steps optimizer
+        # steps (typically one full epoch) before patience-based termination
+        # can fire. Best-metric tracking starts fresh at step >= min_steps.
+        self.min_steps = int(min_steps)
         self._best: float = math.inf if mode == "min" else -math.inf
         self._wait_count: int = 0
         self._stopped_step: int | None = None
@@ -84,6 +92,8 @@ class StepBasedEarlyStopping(L.Callback):
             return
         step = trainer.global_step
         if step == 0 or step % self.every_n_steps != 0:
+            return
+        if step < self.min_steps:
             return
         metric = trainer.callback_metrics.get(self.monitor)
         if metric is None:

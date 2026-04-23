@@ -106,16 +106,27 @@ class State(BaseAlgorithm):
 
     def train(self) -> None:
         import math
+        import yaml
 
         self._check_preprocessed()
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
-        # Clear old checkpoints
-        for item in self.checkpoint_dir.iterdir():
-            if item.is_dir():
-                shutil.rmtree(item)
-            else:
-                item.unlink()
+        # If a `last.ckpt` from a previous (interrupted) run exists under the
+        # profile-specific run dir, preserve the directory so Lightning can
+        # auto-resume via ``get_latest_checkpoint`` (STATE/emb/utils.py). In
+        # that case we also skip the wipe of sibling version_* / metrics.csv
+        # artifacts so the resumed session can stitch its own new CSVLogger
+        # version alongside them. Otherwise, clear stale state.
+        run_dir = self.checkpoint_dir / f"state_{self.profile_name}"
+        resume_ckpt = run_dir / "last.ckpt"
+        if resume_ckpt.exists():
+            print(f"  Resuming from {resume_ckpt} (checkpoint dir preserved)")
+        else:
+            for item in self.checkpoint_dir.iterdir():
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
 
         env = self._get_env()
         train_h5ad = self.train_data_path / "preprocessed.h5ad"
@@ -136,11 +147,11 @@ class State(BaseAlgorithm):
         if self.max_steps is not None:
             max_epochs = max(1, math.ceil(self.max_steps / batches_per_epoch))
             print(f"  Data: {num_cells} cells, ~{batches_per_epoch} batches/epoch, val every {val_interval} steps")
-            print(f"  Step budget: {self.max_steps} steps → {max_epochs} epochs (with early stopping)")
+            print(f"  Step budget: {self.max_steps} steps → {max_epochs} epochs (with early stopping after {batches_per_epoch}-step warm-up = ≥1 epoch)")
         else:
             max_epochs = self.max_epochs
             print(f"  Data: {num_cells} cells, ~{batches_per_epoch} batches/epoch, val every {val_interval} steps")
-            print(f"  Epoch budget: {max_epochs} epochs (with early stopping)")
+            print(f"  Epoch budget: {max_epochs} epochs (with early stopping after {batches_per_epoch}-step warm-up = ≥1 epoch)")
 
         # state emb fit — train with Hydra overrides
         cmd_fit = [
@@ -182,16 +193,20 @@ class State(BaseAlgorithm):
             # already at ~1k steps via `val_check_interval` above.
             "+experiment.log_every_n_steps=10",
             "experiment.limit_val_batches=50",
-            # Checkpoint: save a .ckpt every time validation runs and keep
-            # ALL of them (``save_top_k=-1``). The best checkpoint is still
+            # Checkpoint: save a .ckpt every 10k optimizer steps (independent
+            # of the 1k-step validation cadence) and always maintain a
+            # ``last.ckpt`` pointer so training can resume after a crash. Keep
+            # all 10k-step ckpts (``save_top_k=-1``); the best is still
             # selected downstream by parsing metrics.csv for argmin(val_loss)
             # and matching the step to a .ckpt filename (see
-            # ``_find_best_checkpoint`` below).
+            # ``_find_best_checkpoint`` below). Per-run footprint drops ~10×
+            # vs. the prior 1k-step cadence — needed to fit the 10M-cell sweep
+            # on a 6.8T nvme without filling the disk.
             f"experiment.checkpoint.path={self.checkpoint_dir}",
-            f"experiment.checkpoint.every_n_train_steps={val_interval}",
+            "experiment.checkpoint.every_n_train_steps=10000",
             "experiment.checkpoint.monitor=validation/val_loss",
             "experiment.checkpoint.save_top_k=-1",
-            "+experiment.checkpoint.save_last=false",
+            "+experiment.checkpoint.save_last=true",
             # Disable logging and extra validations
             "wandb.enable=false",
             "validations.diff_exp.enable=false",
@@ -203,11 +218,33 @@ class State(BaseAlgorithm):
         # mean "stop the first time val_loss doesn't strictly improve", which
         # is never what we want, so clamp to a sensible minimum.
         es_patience = max(self.early_stopping_patience or 0, 5)
+        # Early-stopping warm-up: don't allow ES to fire before one full epoch
+        # (≈ batches_per_epoch optimizer steps) of training has elapsed. This
+        # prevents large datasets from terminating mid-first-epoch when the
+        # 5-window patience burns through faster than the data can be seen
+        # once. After the warm-up, ES resumes its normal step-window behavior.
+        min_es_steps = batches_per_epoch
+
+        # ``every_n_steps`` and ``min_steps`` are NOT keys in state-defaults.yaml,
+        # so passing them as CLI overrides crashes Hydra's compose step (in
+        # ``state/__main__.py``); the ``+`` prefix that Hydra needs to add new
+        # keys is in turn mis-parsed by ``OmegaConf.from_dotlist`` in
+        # ``_cli/_emb/_fit.py`` (treats ``+`` as a literal char, putting the
+        # value in a phantom ``+experiment`` branch). Workaround: inject these
+        # two leaves into the per-job state_config.yaml that ``_fit.py`` loads
+        # via ``OmegaConf.load``, bypassing both parsers.
+        with open(self.config_path, "r") as f:
+            cfg_yaml = yaml.safe_load(f)
+        cfg_yaml.setdefault("experiment", {}).setdefault("early_stopping", {})
+        cfg_yaml["experiment"]["early_stopping"]["every_n_steps"] = val_interval
+        cfg_yaml["experiment"]["early_stopping"]["min_steps"] = min_es_steps
+        with open(self.config_path, "w") as f:
+            yaml.safe_dump(cfg_yaml, f, sort_keys=False)
+
         cmd_fit.extend([
             "experiment.early_stopping.enable=true",
             "experiment.early_stopping.monitor=validation/val_loss",
             f"experiment.early_stopping.patience={es_patience}",
-            f"+experiment.early_stopping.every_n_steps={val_interval}",
             "experiment.early_stopping.min_delta=0.0",
             "experiment.early_stopping.mode=min",
         ])
