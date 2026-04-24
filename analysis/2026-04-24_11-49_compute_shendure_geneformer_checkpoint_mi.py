@@ -15,6 +15,7 @@ import sys
 import json
 import random
 import threading
+import time
 import traceback
 import multiprocessing
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -203,7 +204,23 @@ def process_size_quality(
                 seed=SEED,
             )
             gf.embed(inference_batch_size=INFERENCE_BATCH_SIZE)
-            mi_map = gf.mutual_information(max_epochs=MI_MAX_EPOCHS)
+            # The shared test-signal CSV (Y_author_day_<q>_geneformer.csv) is written
+            # by every concurrent worker for the same quality. pandas' to_csv opens in
+            # "w" mode (truncates) so a concurrent reader can catch a partially-written
+            # file and hit `AssertionError: X and Y must be same length!` in latentmi.
+            # Y content is deterministic, so retry after a short sleep.
+            mi_map = None
+            for attempt in range(3):
+                try:
+                    mi_map = gf.mutual_information(max_epochs=MI_MAX_EPOCHS)
+                    break
+                except AssertionError as e:
+                    if "X and Y must be same length" in str(e) and attempt < 2:
+                        print(f"  [retry] {ckpt} X/Y length mismatch on attempt {attempt+1}, sleeping 3s")
+                        time.sleep(3)
+                        continue
+                    raise
+            assert mi_map is not None
             p = mi_txt_path(base_dir, ckpt, quality, SEED)
             mi_val = float(p.read_text().strip()) if p.exists() else None
             results.append(
