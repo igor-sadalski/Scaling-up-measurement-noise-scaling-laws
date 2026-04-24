@@ -86,3 +86,4 @@ collect_mi_results*.csv
 collect_state_results*.csv
 analysis/2026-04-08_veryfing_data_correctness/collect_*.csv
 analysis/2026-04-08_veryfing_data_correctness/missing_*.csv
+!analysis/final_results/collect_mi_results.csv
