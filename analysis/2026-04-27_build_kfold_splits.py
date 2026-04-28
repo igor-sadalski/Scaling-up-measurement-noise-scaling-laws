@@ -1,0 +1,318 @@
+"""Build per-fold train/val h5ad splits with per-run energy distances.
+
+Input  : shendure_author_experimental_id_10k_per_cat.h5ad (160k cells, 16 IDs)
+Output : kfold/{k+1}-fold/train/{run}_edist{value}.h5ad   (13 train h5ads per fold,
+         one per author_experimental_id; filename encodes the energy distance
+         between that single run and the concatenated 3-run val pool, computed
+         on a PCA fit jointly on train+val for the fold)
+         kfold/{k+1}-fold/val/{run}.h5ad                  (3 val h5ads per fold)
+         kfold/folds.json                                  (index of all folds)
+
+Each fold holds 3 IDs out for validation and trains on the remaining 13.
+The 9 val-IDs across the 3 folds are disjoint; the remaining 7 IDs are always
+in the train set. Energy distance for a train run uses geomloss on a 5k subsample
+of PC scores from a PCA fit on the full train+val concatenation for that fold.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import logging
+import sys
+import time
+from pathlib import Path
+
+import anndata as ad
+import numpy as np
+import scanpy as sc
+import torch
+from geomloss import SamplesLoss
+from tqdm.auto import tqdm
+
+SRC = Path(
+    "/home/igor/igor_repos/scaling_laws/data_local/other/batch_effects/"
+    "shendure_774263_q1.0_preprocessed_author_experimental_id_10k_per_cat.h5ad"
+)
+DST_DIR = Path("/home/igor/igor_repos/scaling_laws/data_local/other/batch_effects/kfold")
+FOLDS_PATH = DST_DIR / "folds.json"
+LOG_PATH = DST_DIR / "2026-04-27_build_kfold_splits.log"
+
+COL = "author_experimental_id"
+N_FOLDS = 3
+VAL_PER_FOLD = 3
+SEED = 0
+N_PCS = 50
+EDIST_SAMPLES = 5000
+EXPECTED_PER_ID = 10_000
+
+EXPECTED_IDS = [
+    "run_4", "run_13", "run_14", "run_15", "run_16", "run_17", "run_18",
+    "run_19", "run_20", "run_21", "run_22", "run_23", "run_24", "run_25",
+    "run_26", "run_27",
+]
+
+
+def fold_dir(k: int) -> Path:
+    """1-indexed fold directory: k=0 -> 1-fold, k=1 -> 2-fold, ..."""
+    return DST_DIR / f"{k + 1}-fold"
+
+
+class TqdmToLogger(io.StringIO):
+    """Pipe tqdm bar updates into the logger so they end up in the log file too."""
+
+    def __init__(self, logger: logging.Logger, level: int = logging.INFO) -> None:
+        super().__init__()
+        self.logger = logger
+        self.level = level
+        self.buf = ""
+
+    def write(self, buf: str) -> int:  # type: ignore[override]
+        self.buf = buf.strip("\r\n\t ")
+        return len(buf)
+
+    def flush(self) -> None:  # type: ignore[override]
+        if self.buf:
+            self.logger.log(self.level, self.buf)
+            self.buf = ""
+
+
+def setup_logging() -> logging.Logger:
+    DST_DIR.mkdir(parents=True, exist_ok=True)
+    log = logging.getLogger("build_kfold_splits")
+    log.setLevel(logging.INFO)
+    log.handlers.clear()
+    fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    fh = logging.FileHandler(LOG_PATH, mode="w")
+    fh.setFormatter(fmt)
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(fmt)
+    log.addHandler(fh)
+    log.addHandler(sh)
+    return log
+
+
+def fold_pcs(
+    train_adatas: list[ad.AnnData],
+    val_adatas: list[ad.AnnData],
+    n_pcs: int = N_PCS,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Fit PCA on log-normalized train+val and return (train_pcs, val_pcs)."""
+    combined = ad.concat(train_adatas + val_adatas, join="inner")
+    sc.pp.normalize_total(combined, target_sum=1e4)
+    sc.pp.log1p(combined)
+    sc.pp.pca(combined, n_comps=n_pcs, random_state=SEED)
+    pcs = np.asarray(combined.obsm["X_pca"])
+    n_train = sum(a.n_obs for a in train_adatas)
+    return pcs[:n_train], pcs[n_train:]
+
+
+def energy_distance(
+    a: np.ndarray,
+    b: np.ndarray,
+    n_samples: int = EDIST_SAMPLES,
+    seed: int = SEED,
+) -> float:
+    """geomloss SamplesLoss(loss='energy') on subsamples to bound memory."""
+    rng = np.random.default_rng(seed)
+    ai = rng.choice(len(a), size=min(n_samples, len(a)), replace=False)
+    bi = rng.choice(len(b), size=min(n_samples, len(b)), replace=False)
+    loss = SamplesLoss(loss="energy")
+    at = torch.from_numpy(np.ascontiguousarray(a[ai])).float()
+    bt = torch.from_numpy(np.ascontiguousarray(b[bi])).float()
+    return float(loss(at, bt).item())
+
+
+def build_folds(ids: list[str], rng: np.random.Generator) -> tuple[list[dict], list[str]]:
+    perm = rng.permutation(np.asarray(ids))
+    n_val_total = N_FOLDS * VAL_PER_FOLD
+    if len(perm) < n_val_total:
+        raise ValueError(
+            f"need at least {n_val_total} ids for {N_FOLDS} disjoint val triples, "
+            f"got {len(perm)}"
+        )
+    val_pool = perm[:n_val_total].tolist()
+    always_train = sorted(perm[n_val_total:].tolist())
+    folds = []
+    for k in range(N_FOLDS):
+        val_ids = sorted(val_pool[k * VAL_PER_FOLD : (k + 1) * VAL_PER_FOLD])
+        train_ids = sorted([i for i in ids if i not in val_ids])
+        folds.append({"fold": k, "val_ids": val_ids, "train_ids": train_ids})
+    return folds, always_train
+
+
+def main() -> None:
+    log = setup_logging()
+    log.info("source: %s (%.2f GB on disk)", SRC, SRC.stat().st_size / 1e9)
+    log.info("destination: %s", DST_DIR)
+
+    existing_fold_dirs = sorted(DST_DIR.glob("*-fold"))
+    if existing_fold_dirs:
+        raise SystemExit(
+            f"refusing to start: {DST_DIR} already contains fold subtrees: "
+            f"{[p.name for p in existing_fold_dirs]}. Move them aside (e.g. into "
+            f"{DST_DIR.parent / 'old'}) before rebuilding."
+        )
+
+    log.info("loading h5ad into memory ...")
+    t0 = time.time()
+    adata = ad.read_h5ad(SRC)
+    log.info("loaded in %.1f s. shape=%s", time.time() - t0, adata.shape)
+
+    if COL not in adata.obs.columns:
+        raise KeyError(f"{COL!r} not in obs columns: {list(adata.obs.columns)}")
+
+    labels = adata.obs[COL].astype(str).to_numpy()
+    present_ids = sorted(np.unique(labels).tolist(), key=EXPECTED_IDS.index)
+    if set(present_ids) != set(EXPECTED_IDS):
+        raise ValueError(
+            f"unexpected ids in {COL}.\n"
+            f"  expected: {sorted(EXPECTED_IDS)}\n"
+            f"  found   : {sorted(present_ids)}"
+        )
+    log.info("verified %d ids in %s", len(present_ids), COL)
+
+    log.info("slicing source AnnData into per-id views (in memory) ...")
+    per_id: dict[str, ad.AnnData] = {}
+    per_id_counts: dict[str, int] = {}
+    for cat in EXPECTED_IDS:
+        idx = np.flatnonzero(labels == cat)
+        per_id_counts[cat] = int(idx.size)
+        if idx.size < EXPECTED_PER_ID:
+            log.warning(
+                "id %s has only %d cells (expected %d) — fold totals will be short",
+                cat, idx.size, EXPECTED_PER_ID,
+            )
+        per_id[cat] = adata[idx].copy()
+        log.info("  %-8s n=%d", cat, idx.size)
+
+    log.info("freeing source AnnData ...")
+    del adata
+
+    rng = np.random.default_rng(SEED)
+    folds, always_train = build_folds(EXPECTED_IDS, rng)
+
+    expected_train_total = (len(EXPECTED_IDS) - VAL_PER_FOLD) * EXPECTED_PER_ID
+    expected_val_total = VAL_PER_FOLD * EXPECTED_PER_ID
+
+    tqdm_log = TqdmToLogger(log)
+    for f in tqdm(folds, desc="building folds", file=tqdm_log, mininterval=1.0):
+        out = fold_dir(f["fold"])
+        train_out = out / "train"
+        val_out = out / "val"
+        train_out.mkdir(parents=True)
+        val_out.mkdir(parents=True)
+
+        train_total = sum(per_id_counts[i] for i in f["train_ids"])
+        val_total = sum(per_id_counts[i] for i in f["val_ids"])
+        log.info(
+            "fold %d (-> %s): val=%s (n=%d) train(n_ids=%d, n=%d)=%s",
+            f["fold"], out.name, f["val_ids"], val_total,
+            len(f["train_ids"]), train_total, f["train_ids"],
+        )
+        if train_total < expected_train_total:
+            log.warning(
+                "fold %d train has %d cells, expected %d — short by %d",
+                f["fold"], train_total, expected_train_total,
+                expected_train_total - train_total,
+            )
+        if val_total < expected_val_total:
+            log.warning(
+                "fold %d val has %d cells, expected %d — short by %d",
+                f["fold"], val_total, expected_val_total,
+                expected_val_total - val_total,
+            )
+
+        # Write val h5ads first; one per id, no edist in name.
+        val_files: list[str] = []
+        for vid in f["val_ids"]:
+            v_path = val_out / f"{vid}.h5ad"
+            t0 = time.time()
+            per_id[vid].write_h5ad(v_path, compression="gzip")
+            log.info(
+                "  val  %-8s -> %s (%.2f MB, %.1f s)",
+                vid, v_path.relative_to(DST_DIR), v_path.stat().st_size / 1e6,
+                time.time() - t0,
+            )
+            val_files.append(str(v_path.relative_to(DST_DIR)))
+
+        # Compute joint PCA over (13 train + 3 val) for this fold and reuse for
+        # all 13 per-run energy-distance computations.
+        train_adatas = [per_id[i] for i in f["train_ids"]]
+        val_adatas = [per_id[i] for i in f["val_ids"]]
+        t0 = time.time()
+        train_pcs, val_pcs = fold_pcs(train_adatas, val_adatas)
+        log.info(
+            "  PCA(%d) fit on train+val (n=%d, sub=%d) in %.1f s",
+            N_PCS, train_pcs.shape[0] + val_pcs.shape[0],
+            min(EDIST_SAMPLES, train_pcs.shape[0], val_pcs.shape[0]),
+            time.time() - t0,
+        )
+
+        # Per-run energy distance (this run's PCs vs concatenated val PCs).
+        train_records: list[dict] = []
+        offsets = np.cumsum([0] + [a.n_obs for a in train_adatas])
+        for j, tid in enumerate(f["train_ids"]):
+            run_pcs = train_pcs[offsets[j]:offsets[j + 1]]
+            t0 = time.time()
+            edist = energy_distance(run_pcs, val_pcs)
+            t_path = train_out / f"{tid}_edist{edist:.4f}.h5ad"
+            t1 = time.time()
+            per_id[tid].write_h5ad(t_path, compression="gzip")
+            log.info(
+                "  train %-8s edist=%.4f (%.1f s) -> %s (%.2f MB, %.1f s)",
+                tid, edist, t1 - t0, t_path.relative_to(DST_DIR),
+                t_path.stat().st_size / 1e6, time.time() - t1,
+            )
+            train_records.append(
+                {
+                    "id": tid,
+                    "edist": edist,
+                    "file": str(t_path.relative_to(DST_DIR)),
+                }
+            )
+
+        f["val_files"] = val_files
+        f["train"] = train_records
+        f["n_train"] = int(train_total)
+        f["n_val"] = int(val_total)
+        # train_ids list is now redundant with f["train"]; keep it out of folds.json
+        # to avoid confusion. We'll drop it before serializing below.
+        del train_adatas, val_adatas, train_pcs, val_pcs
+
+    log.info("always-train ids (n=%d): %s", len(always_train), always_train)
+
+    # Strip the temporary train_ids/val_ids ordering keys we no longer need
+    # (val_ids stays — it's the canonical list of held-out ids per fold).
+    folds_serialized = []
+    for f in folds:
+        d = {
+            "fold": f["fold"],
+            "val_ids": f["val_ids"],
+            "val_files": f["val_files"],
+            "train": f["train"],
+            "n_train": f["n_train"],
+            "n_val": f["n_val"],
+        }
+        folds_serialized.append(d)
+
+    cfg = {
+        "source": str(SRC),
+        "id_column": COL,
+        "n_folds": N_FOLDS,
+        "val_per_fold": VAL_PER_FOLD,
+        "seed": SEED,
+        "n_pcs": N_PCS,
+        "edist_subsample": EDIST_SAMPLES,
+        "expected_per_id": EXPECTED_PER_ID,
+        "per_id_counts": per_id_counts,
+        "all_ids": list(EXPECTED_IDS),
+        "folds": folds_serialized,
+    }
+    FOLDS_PATH.write_text(json.dumps(cfg, indent=2))
+    log.info("wrote %s", FOLDS_PATH)
+    log.info("done.")
+
+
+if __name__ == "__main__":
+    main()

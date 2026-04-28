@@ -1,0 +1,273 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage[numbers]{natbib}
+\usepackage{placeins}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{verbatim}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    columns=flexible,
+    showstringspaces=false,
+    frame=single,
+    framesep=4pt,
+    xleftmargin=8pt,
+    xrightmargin=8pt
+}
+
+\title{Supplemental Methods: Data Availability and Access}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Overview}
+
+All raw data, preprocessed training subsets, trained models, learned embeddings, and mutual-information (MI) estimates produced by the experiments in this study are released as a single, self-contained data archive. The archive mirrors the directory layout used during training, so every artifact can be located deterministically from the tuple
+\[
+(\textit{dataset}, \textit{num\_cells}, \textit{quality}, \textit{algorithm}, \textit{signal}, \textit{seed}).
+\]
+
+The full dataset is publicly mirrored on Amazon S3 with anonymous read-only access (no AWS credentials required):
+\begin{lstlisting}
+s3://measurement-noise-scaling-laws/data/
+\end{lstlisting}
+The archive totals approximately $2.4$~TB. A locally mounted copy is used for the experiments in this paper (resolved through \texttt{scaling\_laws.paths.DATA\_DIR}, default \texttt{\~/noise\_scaling/data}, overridable through the \texttt{NOISE\_SCALING\_DATA\_DIR} environment variable).
+
+\section{Top-level layout}
+
+The archive contains four single-cell datasets, a shared protein-embedding bundle, and Weights \& Biases experiment logs:
+
+\begin{lstlisting}
+data/
+|-- PBMC/        (~276-281 GB) CITE-seq peripheral blood mononuclear cells
+|-- larry/       (~347-360 GB) State-fate lineage tracing
+|-- merfish/     (~197 GB)     MERFISH spatial transcriptomics
+|-- shendure/    (~1.6 TB)     Embryo developmental atlas (~10M cells)
+|-- other/
+|   `-- esm/                   Shared ESM-2 / TranscriptFormer protein embeddings
+|       |-- merged_esm_embeddings.pt
+|       |-- required_gene_names.pkl
+|       `-- coverage_report.txt
+`-- wandb/       (~558 MB)     Weights & Biases experiment logs
+\end{lstlisting}
+
+\section{Datasets}
+
+Four datasets span lineage, spatial, and developmental contexts (Table~\ref{tab:datasets}). Each dataset is sampled at $10$ logarithmically-spaced training sizes and downsampled to $10$ logarithmically-spaced quality levels (Table~\ref{tab:sizes_qualities}). Quality is defined as the fraction of original UMI counts retained after Numba-accelerated multinomial downsampling, so quality $=1.0$ corresponds to no induced measurement noise.
+
+\begin{table}[!htbp]
+\centering
+\caption{Datasets, biological signals, sources, and approximate scale.}
+\label{tab:datasets}
+\small
+\begin{tabular}{lllrl}
+\toprule
+\textbf{Dataset} & \textbf{Description} & \textbf{Source} & \textbf{Total cells} & \textbf{Signal columns} \\
+\midrule
+PBMC     & CITE-seq PBMCs              & 10x Genomics / Seurat       & $\sim$100{,}000     & \texttt{celltype.l3}, \texttt{protein\_counts} \\
+larry    & State-fate lineage tracing  & Klein lab                   & $\sim$60{,}000      & \texttt{clone} \\
+merfish  & MERFISH spatial transcriptomics & Allen Institute         & $\sim$60{,}000      & \texttt{cur\_idx}, \texttt{ng\_idx} \\
+shendure & Embryo developmental atlas  & Shendure lab / cellxgene    & $\sim$10{,}000{,}000 & \texttt{author\_day} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[!htbp]
+\centering
+\caption{Training subset sizes (\texttt{num\_cells}) and quality ranges per dataset. Each dataset uses $10$ log-spaced sizes and $10$ log-spaced quality levels.}
+\label{tab:sizes_qualities}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Dataset} & \textbf{Sizes / quality range} \\
+\midrule
+PBMC     & 100, 215, 464, 1{,}000, 2{,}154, 4{,}641, 10{,}000, 21{,}544, 46{,}415, 100{,}000 \\
+         & quality $\in [0.0012346,\; 1.0]$ \\
+larry    & 100, 215, 464, 1{,}000, 2{,}154, 4{,}641, 10{,}000, 21{,}544, 46{,}415, 100{,}000 \\
+         & quality $\in [0.003876,\; 1.0]$ \\
+merfish  & 100, 203, 414, 843, 1{,}716, 3{,}494, 7{,}113, 14{,}480, 29{,}475, 60{,}000 \\
+         & quality $\in [0.027248,\; 1.0]$ \\
+shendure & 100, 359, 1{,}291, 4{,}641, 16{,}681, 59{,}948, 215{,}443, 774{,}263, 2{,}782{,}559, 10{,}000{,}000 \\
+         & quality $\in [0.004,\; 1.0]$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Per-dataset directory structure}
+
+Every dataset directory follows an identical hierarchy. At the root sit the unprocessed AnnData object, dataset-level utility tables (gene-to-token mapping, gene medians, Ensembl mapping, HVG mask, t-digest normalization statistics), and held-out evaluation splits. Below this, each training subset of size \texttt{\{num\_cells\}} contains $10$ \texttt{\{quality\}} subdirectories, and each quality directory holds preprocessed AnnData, tokenized HuggingFace Arrow datasets, and per-algorithm trained-model directories with embeddings and MI estimates.
+
+\begin{lstlisting}
+{dataset}/
+|-- raw/raw.h5ad                            # Original unprocessed AnnData
+|-- utils/
+|   |-- token_dict.pkl                      # Geneformer gene -> token mapping
+|   |-- gene_median_dict.pkl                # Per-gene expression medians
+|   |-- detected_gene_median_dict.pkl
+|   |-- ensembl_mapping_dict.pkl            # Gene name -> Ensembl ID
+|   |-- pca_hvg.pkl                         # HVG boolean mask (750 genes)
+|   `-- total_gene_tdigest_dict.pkl         # T-digest normalization stats
+|-- test/  validation/                      # Same layout as training subsets
+`-- {num_cells}/
+    |-- sample.h5ad                         # Subsampled cells (pre-downsampling)
+    `-- {quality}/
+        |-- sample.h5ad
+        |-- preprocessed/
+        |   |-- preprocessed.h5ad           # Preprocessed + downsampled AnnData
+        |   |-- lengths.pkl
+        |   `-- tokenized.dataset/          # HuggingFace Arrow (Geneformer)
+        `-- results/
+            |-- Geneformer/{checkpoint-*, model/}
+            |-- SCVI/model/
+            |-- State/model/
+            |-- PCA/model/
+            `-- RandomProjection/model/
+\end{lstlisting}
+
+\section{Embedding algorithms and trained artifacts}
+
+Five embedding algorithms are evaluated at every $(\textit{dataset},\, \textit{num\_cells},\, \textit{quality})$ combination. Each method's trained model, test-set embeddings, and downstream MI estimates are stored in a parallel subtree under \texttt{results/} (Table~\ref{tab:algorithms}).
+
+\begin{table}[!htbp]
+\centering
+\caption{Embedding algorithms, their on-disk model file, embedding dimensionality, and short description.}
+\label{tab:algorithms}
+\small
+\begin{tabular}{llcp{6.5cm}}
+\toprule
+\textbf{Algorithm} & \textbf{Model file} & \textbf{Dim.} & \textbf{Description} \\
+\midrule
+Geneformer        & \texttt{model.safetensors}      & 256 & BERT-style masked language model over rank-encoded gene expression \\
+SCVI              & \texttt{model.pt}               & 16  & Variational autoencoder with ZINB likelihood (scvi-tools) \\
+STATE             & \texttt{checkpoints/*.pt}       & 256 & Self-supervised transformer encoder (Arc Institute); uses TranscriptFormer / ESM-2 protein embeddings from \texttt{other/esm/merged\_esm\_embeddings.pt} \\
+PCA               & \texttt{pca\_model.pkl}         & 256 & Truncated SVD on HVG-selected genes \\
+RandomProjection  & \texttt{random\_projection.joblib} & 256 & Gaussian random projection baseline \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+STATE results are not produced for every $(\textit{size}, \textit{quality})$ combination: full coverage exists only for \texttt{merfish}, while \texttt{PBMC}, \texttt{larry}, and \texttt{shendure} contain STATE results only at their largest training size and quality $=1.0$ ($46{,}415$, $46{,}415$, and $59{,}948$ cells respectively).
+
+\section{Shared ESM-2 / TranscriptFormer protein embeddings}
+
+\texttt{other/esm/merged\_esm\_embeddings.pt} is a shared $2{,}560$-dimensional protein-language-model embedding table covering both \emph{Mus musculus} and \emph{Homo sapiens}, derived from TranscriptFormer's \texttt{mus\_musculus\_gene.h5} and \texttt{homo\_sapiens\_gene.h5} releases and indexed by both Ensembl IDs and short gene names. STATE preprocessing auto-discovers this table and substitutes it for one-hot gene tokens. Per-dataset coverage against \texttt{var\_names} of \texttt{raw/raw.h5ad} is reported in Table~\ref{tab:esm_coverage}; \texttt{coverage\_report.txt} in the same directory contains the full per-dataset breakdown, and \texttt{required\_gene\_names.pkl} stores the union of gene names across datasets.
+
+\begin{table}[!htbp]
+\centering
+\caption{ESM-2 / TranscriptFormer protein-embedding coverage per dataset.}
+\label{tab:esm_coverage}
+\small
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Dataset} & \textbf{Genes} & \textbf{In ESM dict} & \textbf{Coverage} \\
+\midrule
+PBMC     & 20{,}729 & 14{,}899 & 71.9\% \\
+larry    & 25{,}289 & 18{,}146 & 71.8\% \\
+merfish  &    483  &    479  & 99.2\% \\
+shendure & 45{,}525 & 21{,}820 & 47.9\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Mutual-information estimates}
+
+Mutual information between embeddings and biological-signal columns is estimated with the latent mutual information (LMI) method using $4$ random seeds: $\{42,\, 1404,\, 2303,\, 2701\}$. Each MI run produces three files (Table~\ref{tab:mi_files}) stored at
+\begin{lstlisting}
+results/{Algorithm}/model/MI/{seed}/Y_{signal}_{quality}_{method}/
+\end{lstlisting}
+
+\begin{table}[!htbp]
+\centering
+\caption{Files produced per MI run.}
+\label{tab:mi_files}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{File} & \textbf{Description} \\
+\midrule
+\texttt{lmi\_mutual\_information.txt} & Scalar MI estimate (nats) \\
+\texttt{lmi\_embeddings.npy}          & Optimized low-dimensional projection (NumPy array) \\
+\texttt{lmi\_model.pt}                & Trained LMI neural-network state dict \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{File formats}
+
+\begin{table}[!htbp]
+\centering
+\caption{On-disk file formats and recommended loaders.}
+\label{tab:formats}
+\small
+\begin{tabular}{lll}
+\toprule
+\textbf{Extension} & \textbf{Format} & \textbf{How to load} \\
+\midrule
+\texttt{.h5ad}        & AnnData (HDF5)                        & \texttt{anndata.read\_h5ad(path)} \\
+\texttt{.csv}         & Comma-separated embeddings / signals  & \texttt{pandas.read\_csv(path, index\_col=0)} \\
+\texttt{.npy}         & NumPy array                           & \texttt{numpy.load(path)} \\
+\texttt{.pt}          & PyTorch state dict / model            & \texttt{torch.load(path)} \\
+\texttt{.safetensors} & HuggingFace SafeTensors               & \texttt{safetensors.torch.load\_file(path)} \\
+\texttt{.pkl}         & Python pickle                         & \texttt{pickle.load(open(path, 'rb'))} \\
+\texttt{.joblib}      & Joblib-compressed object              & \texttt{joblib.load(path)} \\
+\texttt{.arrow}       & Apache Arrow (HuggingFace datasets)   & \texttt{datasets.load\_from\_disk(parent\_dir)} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Programmatic and command-line access}
+
+The \texttt{S3Retriever} class (\texttt{scaling\_laws.s3\_retriever}) provides a unified interface to either the public S3 mirror or a local copy of the archive. It transparently caches S3 downloads to \texttt{\~/.cache/noise\_scaling\_laws/} and exposes loaders for embeddings, MI scalars, LMI projections, AnnData samples, and trained models for every algorithm.
+
+\begin{lstlisting}
+from scaling_laws.s3_retriever import S3Retriever
+
+# Default: public S3 bucket
+data = S3Retriever()
+
+# Or point at a local copy
+data = S3Retriever("/path/to/local/data/")
+
+mi  = data.load_mutual_information("PBMC", num_cells=1000, quality=1.0,
+                                   algorithm="Geneformer",
+                                   signal="celltype.l3", seed=42)
+emb = data.load_embeddings("merfish", num_cells=7113, quality=1.0,
+                           algorithm="Geneformer")
+adt = data.load_sample("PBMC", num_cells=1000, quality=0.225772)
+df  = data.collect_all_mi_results("merfish")
+\end{lstlisting}
+
+The same module is exposed as a CLI (\texttt{python -m scaling\_laws.s3\_retriever \{list,mi,collect,download\} \dots}). Direct \texttt{aws s3} access works without credentials by passing \texttt{--no-sign-request}:
+
+\begin{lstlisting}
+aws s3 ls s3://measurement-noise-scaling-laws/data/ --no-sign-request
+
+aws s3 sync s3://measurement-noise-scaling-laws/data/merfish/ ./merfish/ \
+    --no-sign-request
+
+aws s3 cp s3://measurement-noise-scaling-laws/data/PBMC/1000/1.0/results/\
+Geneformer/model/MI/42/Y_celltype.l3_1.0_geneformer/lmi_mutual_information.txt \
+    - --no-sign-request
+\end{lstlisting}
+
+\section{Reproducibility}
+
+Because every artifact is keyed by the explicit tuple $(\textit{dataset}, \textit{num\_cells}, \textit{quality}, \textit{algorithm}, \textit{signal}, \textit{seed})$, any individual experiment in this paper can be located, downloaded, and re-evaluated independently of the rest of the archive. The full preprocessing-to-MI pipeline that generated this layout is described in the main repository \texttt{README} and orchestrated by the \texttt{Experiments} class in \texttt{scaling\_laws.prepare.data}.
+
+\FloatBarrier
+
+\end{document}
