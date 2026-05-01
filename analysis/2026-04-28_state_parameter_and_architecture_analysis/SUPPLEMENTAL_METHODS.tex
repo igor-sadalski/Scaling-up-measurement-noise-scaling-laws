@@ -79,6 +79,43 @@ Early-stopping patience & 5 validation windows ($\geq 1$-epoch warm-up) \\
 \end{tabular}
 \end{table}
 
+\section{Hyperparameter Selection for From-Scratch Training}
+
+To select the regularization and optimization hyperparameters used in the from-scratch STATE (SE) training, we ran a random search over the PBMC dataset at the largest available size (100{,}000 cells) across all 10 quality levels. The model architecture was held fixed at the values in Table~\ref{tab:state_params}. Four hyperparameters were swept independently:
+
+\begin{itemize}
+    \item \textbf{Dropout}: $\{0.0, 0.1, 0.2, 0.3\}$
+    \item \textbf{Batch size}: $\{32, 64, 128\}$
+    \item \textbf{Maximum learning rate}: $\{10^{-6}, 10^{-5}, 5\times10^{-5}, 10^{-4}, 5\times10^{-4}, 10^{-3}\}$
+    \item \textbf{Weight decay}: $\{10^{-4}, 10^{-3}, 10^{-2}, 10^{-1}\}$
+\end{itemize}
+
+Eight configurations were sampled at random (seed 42) without replacement from the Cartesian product of the above grids, excluding the production baseline. The production baseline (dropout $= 0.1$, batch size $= 64$, max LR $= 10^{-4}$, weight decay $= 10^{-2}$) was always included as an additional trial, yielding 9 trials in total. Each trial was trained for a fixed budget of 15{,}000 optimizer steps, with validation and early stopping (patience $= 5$ windows at 1{,}000-step intervals) matching the production pipeline exactly. The configuration with the highest mean mutual information across all size–quality cells was selected and carried forward as the production hyperparameters reported in Table~\ref{tab:state_params}.
+
+\section{Fine-Tuning the Pretrained SE-100M Model}
+
+In addition to training STATE from scratch, we evaluated fine-tuning the publicly released Arc Institute SE-100M embedding model\cite{adduri2025state} on the PBMC noise-scaling grid. SE-100M was pretrained on a large multi-dataset corpus (scBasecamp / CellxGene / Tahoe; $\sim$14{,}418 dataset classes) using the full STATE self-supervised objective with dataset-level batch correction.
+
+\paragraph{Checkpoint preparation.}
+The SE-100M snapshot was downloaded from HuggingFace (\texttt{arcinstitute/SE-100M}). Before fine-tuning, the pretrained Lightning checkpoint was stripped of all optimizer, scheduler, and loop state, retaining only the \texttt{state\_dict}. The epoch counter was reset to 0 and the global step to 0, so Lightning re-initializes a fresh optimizer and schedule at the start of fine-tuning rather than resuming from the pretrain trajectory. This stripped ``weights-only'' checkpoint was placed in the checkpoint directory where Lightning's auto-resume logic picks it up as \texttt{last.ckpt}.
+
+\paragraph{Gene vocabulary alignment.}
+SE-100M uses its own gene embedding table (TranscriptFormer protein embeddings). For each (size, quality) cell, \texttt{state emb preprocess} was re-run against SE-100M's \texttt{protein\_embeddings.pt} vocabulary to produce a fresh token mapping (\texttt{ds\_emb\_mapping} / \texttt{valid\_genes\_masks}) consistent with the pretrained weights. This preprocessing was run in parallel across cells prior to the fine-tune sweep.
+
+\paragraph{Fine-tuning protocol.}
+Each (size, quality) cell was fine-tuned for a fixed 3-epoch budget with early stopping disabled, so every cell received the same total amount of optimization. Key hyperparameters are summarized below:
+
+\begin{itemize}
+    \item \textbf{Maximum learning rate}: $10^{-6}$ (10$\times$ below SE-100M's pretraining rate of $10^{-5}$), scaled proportionally by $\max(0.3, \sqrt{N/10{,}000})$ for cells with fewer than 10{,}000 training cells to prevent over-regularization at small sizes.
+    \item \textbf{LR schedule}: OneCycleLR with start $=$ end $= 1.0$ (collapses the warmup ramp to a flat cosine decay, avoiding LR overshoot at fine-tune scale).
+    \item \textbf{Gradient accumulation}: 16 steps, yielding an effective batch size of $64 \times 16 = 1{,}024$, matching SE-100M's pretraining effective batch.
+    \item \textbf{Dropout}: 0.15 for cells with $\geq 10{,}000$ cells, 0.20 for smaller cells.
+    \item \textbf{Weight decay}: 0.01 for cells with $\geq 10{,}000$ cells, 0.05 for smaller cells.
+    \item \textbf{Dataset correction}: Kept enabled (\texttt{model.dataset\_correction=true}) with \texttt{num\_datasets=14418} to match SE-100M's pretrained \texttt{state\_dict} shape exactly; the batch-correction classifier head receives a meaningless label signal on PBMC but does not interfere with the encoder gradients.
+\end{itemize}
+
+After fine-tuning, the best checkpoint was selected by minimum validation loss (falling back to the end-of-training weights when no validation window fired within the 3-epoch budget), and test-set cell embeddings were extracted for downstream mutual-information estimation against \texttt{celltype.l3} and \texttt{protein\_counts}.
+
 \FloatBarrier
 
 \begin{thebibliography}{99}

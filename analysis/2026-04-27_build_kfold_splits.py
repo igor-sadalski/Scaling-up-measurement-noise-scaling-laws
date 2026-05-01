@@ -1,17 +1,18 @@
 """Build per-fold train/val h5ad splits with per-run energy distances.
 
 Input  : shendure_author_experimental_id_10k_per_cat.h5ad (160k cells, 16 IDs)
-Output : kfold/{k+1}-fold/train/{run}_edist{value}.h5ad   (13 train h5ads per fold,
+Output : kfold/{k+1}-fold/train/{run}_edist{value}.h5ad   (8 train h5ads per fold,
          one per author_experimental_id; filename encodes the energy distance
-         between that single run and the concatenated 3-run val pool, computed
+         between that single run and the val pool, computed
          on a PCA fit jointly on train+val for the fold)
-         kfold/{k+1}-fold/val/{run}.h5ad                  (3 val h5ads per fold)
+         kfold/{k+1}-fold/val/{run}.h5ad                  (8 val h5ads per fold)
          kfold/folds.json                                  (index of all folds)
 
-Each fold holds 3 IDs out for validation and trains on the remaining 13.
-The 9 val-IDs across the 3 folds are disjoint; the remaining 7 IDs are always
-in the train set. Energy distance for a train run uses geomloss on a 5k subsample
-of PC scores from a PCA fit on the full train+val concatenation for that fold.
+2-fold CV across the 16 IDs: each fold holds 8 IDs (50%) out for validation
+and trains on the remaining 8. The 2 val sets across both folds cover every
+ID exactly once, so there is no "always-train" set. Energy distance for a train
+run uses geomloss on a 5k subsample of PC scores from a PCA fit on the full
+train+val concatenation for that fold.
 """
 
 from __future__ import annotations
@@ -39,8 +40,8 @@ FOLDS_PATH = DST_DIR / "folds.json"
 LOG_PATH = DST_DIR / "2026-04-27_build_kfold_splits.log"
 
 COL = "author_experimental_id"
-N_FOLDS = 3
-VAL_PER_FOLD = 3
+N_FOLDS = 2
+VAL_PER_FOLD = 8
 SEED = 0
 N_PCS = 50
 EDIST_SAMPLES = 5000
@@ -236,8 +237,8 @@ def main() -> None:
             )
             val_files.append(str(v_path.relative_to(DST_DIR)))
 
-        # Compute joint PCA over (13 train + 3 val) for this fold and reuse for
-        # all 13 per-run energy-distance computations.
+        # Compute joint PCA over (8 train + 8 val) for this fold and reuse for
+        # all 8 per-run energy-distance computations.
         train_adatas = [per_id[i] for i in f["train_ids"]]
         val_adatas = [per_id[i] for i in f["val_ids"]]
         t0 = time.time()

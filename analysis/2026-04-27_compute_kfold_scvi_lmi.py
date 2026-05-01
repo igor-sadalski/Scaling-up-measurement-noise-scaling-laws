@@ -1,14 +1,15 @@
 """Train one SCVI per (fold, train_run), embed val pool, compute latentmi MI.
 
 For each fold directory `kfold/{K}-fold/` produced by
-`2026-04-27_build_kfold_splits.py`, the fold's `train/` holds 13 per-run
-h5ads (`{run}_edist{value}.h5ad`) and `val/` holds 3 per-run h5ads. This
-script trains one SCVI model per training run on its single ~10k-cell h5ad,
-embeds the fold's full 30k-cell val pool, and runs `latentmi` against
+`2026-04-27_build_kfold_splits.py` (2-fold CV with 50% val across the 16
+author_experimental_ids), the fold's `train/` holds 8 per-run h5ads
+(`{run}_edist{value}.h5ad`) and `val/` holds 8 per-run h5ads. This script
+trains one SCVI model per training run on its single ~10k-cell h5ad,
+embeds the fold's ~80k-cell val pool, and runs `latentmi` against
 one-hot `author_day`. Each (fold, run_id) is one worker doing
-train -> embed -> LMI sequentially in-process; workers run 8 at a time
-across the 8 visible GPUs via a spawn ProcessPoolExecutor. Hyperparameters
-match `scaling_laws/algo/scvi.py:SCVI.train` and
+train -> embed -> LMI sequentially in-process; workers run JOBS_PER_GPU
+per GPU (default 2) on the 8 visible GPUs via a spawn ProcessPoolExecutor.
+Hyperparameters match `scaling_laws/algo/scvi.py:SCVI.train` and
 `scaling_laws/algo/abc.py:BaseAlgorithm.mutual_information`.
 
 Reads:
@@ -54,15 +55,17 @@ SUMMARY_CSV = FINAL_RESULTS_DIR / "kfold_scvi_lmi.csv"
 
 SIGNAL_COLUMN = "author_day"
 LMI_SEED = 42
-SCVI_MAX_EPOCHS = 100
+SCVI_MAX_EPOCHS = 25
 SCVI_BATCH_SIZE = 512
 LMI_MAX_EPOCHS = 300
-N_GPUS = 8
-JOBS_PER_GPU = 10
+# Physical GPU indices to use. Set to a subset (e.g. [1, 4]) when other users
+# occupy some GPUs. Workers round-robin across this list.
+GPU_INDICES = [1, 2, 4]
+N_GPUS = len(GPU_INDICES)
+JOBS_PER_GPU = 3
 
 # Limit which fold subdirs to process (None = all folds discovered on disk).
-# Currently restricted to "1-fold" for the first end-to-end pass.
-FOLD_WHITELIST: set[str] | None = {"1-fold"}
+FOLD_WHITELIST: set[str] | None = None
 
 EDIST_RE = re.compile(r"^(?P<run>.+)_edist(?P<v>\d+\.\d+)\.h5ad$")
 FOLD_RE = re.compile(r"^(?P<k>\d+)-fold$")
@@ -166,8 +169,10 @@ def process_job(
     WORKER_LOG_DIR.mkdir(parents=True, exist_ok=True)
     worker_log = WORKER_LOG_DIR / f"{fold_label}_{run_id}.log"
     wf = open(worker_log, "w", buffering=1)
-    sys.stdout = wf
-    sys.stderr = wf
+    # Tee to the parent terminal so verbose progress bars stream live, while
+    # also keeping a clean per-worker log file.
+    sys.stdout = Tee(sys.__stdout__, wf)
+    sys.stderr = Tee(sys.__stderr__, wf)
     tag = f"[{fold_label}/{run_id}]"
     print(
         f"{tag} gpu={gpu_id} train={Path(train_h5ad).name} "
@@ -239,32 +244,32 @@ def process_job(
         plan_kwargs=train_plan,
         check_val_every_n_epoch=1,
         log_every_n_steps=1,
-        enable_progress_bar=False,
+        enable_progress_bar=True,
         early_stopping=False,
         max_epochs=SCVI_MAX_EPOCHS,
     )
     vae.save(str(model_dir), overwrite=True, save_anndata=False)
     train_elapsed = time.time() - t0
 
-    # Persist scvi-tools' per-epoch metrics (elbo_train/elbo_validation,
-    # reconstruction_loss_*, kl_local_*, ...) as a single wide CSV indexed by
-    # epoch. vae.history is a dict[str, DataFrame], each df has one column.
+    # Persist only the per-epoch train/val ELBO. vae.history mixes per-step
+    # metrics (lr-Adam, kl_weight) with per-epoch ones, both labeled "epoch",
+    # so concatenating everything misaligns the index. Just save what we plot.
     history_dict = vae.history
-    hist_frames = []
-    for metric, hist_df in history_dict.items():
-        col = hist_df.columns[0] if len(hist_df.columns) else metric
-        hist_frames.append(hist_df.rename(columns={col: metric}))
-    if hist_frames:
-        history_combined = pd.concat(hist_frames, axis=1)
+    train_df = history_dict.get("elbo_train")
+    val_df = history_dict.get("elbo_validation")
+    if train_df is not None and val_df is not None:
+        history_combined = pd.DataFrame({
+            "train_loss": train_df.iloc[:, 0],
+            "val_loss": val_df.iloc[:, 0],
+        })
         history_combined.index.name = "epoch"
         history_combined.to_csv(out_dir / "training_history.csv", index=True)
         print(
-            f"{tag} wrote training history "
-            f"({history_combined.shape[0]} epochs x {history_combined.shape[1]} metrics) "
+            f"{tag} wrote training history ({len(history_combined)} epochs) "
             f"-> {out_dir / 'training_history.csv'}"
         )
     else:
-        print(f"{tag} WARNING: vae.history was empty -- no training_history.csv written")
+        print(f"{tag} WARNING: elbo_train/elbo_validation missing from vae.history")
     print(f"{tag} SCVI trained + saved in {train_elapsed:.1f}s")
 
     # ---- 2. Build val AnnData by concatenating per-id h5ads ----
@@ -397,7 +402,7 @@ def main() -> None:
         ) as ex:
             futures = {}
             for i, j in enumerate(pending):
-                gpu_id = i % N_GPUS
+                gpu_id = GPU_INDICES[i % N_GPUS]
                 fut = ex.submit(
                     process_job,
                     j["fold_label"],
