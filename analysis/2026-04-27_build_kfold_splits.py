@@ -1,6 +1,6 @@
 """Build per-fold train/val h5ad splits with per-run energy distances.
 
-Input  : shendure_author_experimental_id_10k_per_cat.h5ad (160k cells, 16 IDs)
+Input  : per-ID h5ads recovered from old 16-fold LOO val dirs
 Output : kfold/{k+1}-fold/train/{run}_edist{value}.h5ad   (8 train h5ads per fold,
          one per author_experimental_id; filename encodes the energy distance
          between that single run and the val pool, computed
@@ -8,11 +8,11 @@ Output : kfold/{k+1}-fold/train/{run}_edist{value}.h5ad   (8 train h5ads per fol
          kfold/{k+1}-fold/val/{run}.h5ad                  (8 val h5ads per fold)
          kfold/folds.json                                  (index of all folds)
 
-2-fold CV across the 16 IDs: each fold holds 8 IDs (50%) out for validation
-and trains on the remaining 8. The 2 val sets across both folds cover every
-ID exactly once, so there is no "always-train" set. Energy distance for a train
-run uses geomloss on a 5k subsample of PC scores from a PCA fit on the full
-train+val concatenation for that fold.
+8-fold CV across the 16 IDs: each fold holds 8 IDs (50%) out for validation
+and trains on the remaining 8. Val sets are independently sampled per fold so
+overlap between folds is allowed. Energy distance for a train run uses geomloss
+on a 5k subsample of PC scores from a PCA fit on the full train+val concatenation
+for that fold.
 """
 
 from __future__ import annotations
@@ -31,16 +31,18 @@ import torch
 from geomloss import SamplesLoss
 from tqdm.auto import tqdm
 
-SRC = Path(
-    "/home/igor/igor_repos/scaling_laws/data_local/other/batch_effects/"
-    "shendure_774263_q1.0_preprocessed_author_experimental_id_10k_per_cat.h5ad"
+# Per-ID h5ads are recovered from the old 16-fold LOO val directories.
+# Each ID appeared as the single val set in exactly one old fold, so all 16
+# canonical per-ID h5ads are recoverable without the original source h5ad.
+OLD_KFOLD_SRC = Path(
+    "/home/igor/igor_repos/scaling_laws/data_local/old/batch_effects/kfold"
 )
 DST_DIR = Path("/home/igor/igor_repos/scaling_laws/data_local/other/batch_effects/kfold")
 FOLDS_PATH = DST_DIR / "folds.json"
 LOG_PATH = DST_DIR / "2026-04-27_build_kfold_splits.log"
 
 COL = "author_experimental_id"
-N_FOLDS = 2
+N_FOLDS = 8
 VAL_PER_FOLD = 8
 SEED = 0
 N_PCS = 50
@@ -124,27 +126,51 @@ def energy_distance(
     return float(loss(at, bt).item())
 
 
-def build_folds(ids: list[str], rng: np.random.Generator) -> tuple[list[dict], list[str]]:
-    perm = rng.permutation(np.asarray(ids))
-    n_val_total = N_FOLDS * VAL_PER_FOLD
-    if len(perm) < n_val_total:
-        raise ValueError(
-            f"need at least {n_val_total} ids for {N_FOLDS} disjoint val triples, "
-            f"got {len(perm)}"
-        )
-    val_pool = perm[:n_val_total].tolist()
-    always_train = sorted(perm[n_val_total:].tolist())
+def build_folds(ids: list[str]) -> list[dict]:
+    """Independently sample VAL_PER_FOLD val IDs per fold; overlaps allowed."""
     folds = []
     for k in range(N_FOLDS):
-        val_ids = sorted(val_pool[k * VAL_PER_FOLD : (k + 1) * VAL_PER_FOLD])
+        rng_k = np.random.default_rng(SEED + k)
+        val_ids = sorted(
+            rng_k.choice(ids, size=VAL_PER_FOLD, replace=False).tolist()
+        )
         train_ids = sorted([i for i in ids if i not in val_ids])
         folds.append({"fold": k, "val_ids": val_ids, "train_ids": train_ids})
-    return folds, always_train
+    return folds
+
+
+def load_per_id_from_old_kfold(log: logging.Logger) -> tuple[dict[str, ad.AnnData], dict[str, int]]:
+    """Recover per-ID h5ads from old LOO val dirs (each ID is one fold's val)."""
+    per_id: dict[str, ad.AnnData] = {}
+    per_id_counts: dict[str, int] = {}
+    for fold_path in sorted(OLD_KFOLD_SRC.glob("*-fold")):
+        val_dir = fold_path / "val"
+        for h5ad_path in sorted(val_dir.glob("*.h5ad")):
+            run_id = h5ad_path.stem
+            if run_id in per_id:
+                continue  # already loaded
+            if run_id not in EXPECTED_IDS:
+                log.warning("unexpected id %s in %s — skipping", run_id, h5ad_path)
+                continue
+            t0 = time.time()
+            per_id[run_id] = ad.read_h5ad(h5ad_path)
+            per_id_counts[run_id] = int(per_id[run_id].n_obs)
+            log.info("  %-8s n=%d loaded from %s (%.1f s)",
+                     run_id, per_id_counts[run_id],
+                     h5ad_path.relative_to(OLD_KFOLD_SRC), time.time() - t0)
+
+    missing = set(EXPECTED_IDS) - set(per_id)
+    if missing:
+        raise FileNotFoundError(
+            f"could not find h5ads for ids: {sorted(missing)}\n"
+            f"searched under {OLD_KFOLD_SRC}"
+        )
+    return per_id, per_id_counts
 
 
 def main() -> None:
     log = setup_logging()
-    log.info("source: %s (%.2f GB on disk)", SRC, SRC.stat().st_size / 1e9)
+    log.info("old kfold source: %s", OLD_KFOLD_SRC)
     log.info("destination: %s", DST_DIR)
 
     existing_fold_dirs = sorted(DST_DIR.glob("*-fold"))
@@ -155,43 +181,11 @@ def main() -> None:
             f"{DST_DIR.parent / 'old'}) before rebuilding."
         )
 
-    log.info("loading h5ad into memory ...")
-    t0 = time.time()
-    adata = ad.read_h5ad(SRC)
-    log.info("loaded in %.1f s. shape=%s", time.time() - t0, adata.shape)
+    log.info("loading per-ID h5ads from old kfold val dirs ...")
+    per_id, per_id_counts = load_per_id_from_old_kfold(log)
+    log.info("loaded %d IDs", len(per_id))
 
-    if COL not in adata.obs.columns:
-        raise KeyError(f"{COL!r} not in obs columns: {list(adata.obs.columns)}")
-
-    labels = adata.obs[COL].astype(str).to_numpy()
-    present_ids = sorted(np.unique(labels).tolist(), key=EXPECTED_IDS.index)
-    if set(present_ids) != set(EXPECTED_IDS):
-        raise ValueError(
-            f"unexpected ids in {COL}.\n"
-            f"  expected: {sorted(EXPECTED_IDS)}\n"
-            f"  found   : {sorted(present_ids)}"
-        )
-    log.info("verified %d ids in %s", len(present_ids), COL)
-
-    log.info("slicing source AnnData into per-id views (in memory) ...")
-    per_id: dict[str, ad.AnnData] = {}
-    per_id_counts: dict[str, int] = {}
-    for cat in EXPECTED_IDS:
-        idx = np.flatnonzero(labels == cat)
-        per_id_counts[cat] = int(idx.size)
-        if idx.size < EXPECTED_PER_ID:
-            log.warning(
-                "id %s has only %d cells (expected %d) — fold totals will be short",
-                cat, idx.size, EXPECTED_PER_ID,
-            )
-        per_id[cat] = adata[idx].copy()
-        log.info("  %-8s n=%d", cat, idx.size)
-
-    log.info("freeing source AnnData ...")
-    del adata
-
-    rng = np.random.default_rng(SEED)
-    folds, always_train = build_folds(EXPECTED_IDS, rng)
+    folds = build_folds(EXPECTED_IDS)
 
     expected_train_total = (len(EXPECTED_IDS) - VAL_PER_FOLD) * EXPECTED_PER_ID
     expected_val_total = VAL_PER_FOLD * EXPECTED_PER_ID
@@ -224,7 +218,7 @@ def main() -> None:
                 expected_val_total - val_total,
             )
 
-        # Write val h5ads first; one per id, no edist in name.
+        # Write val h5ads; one per id, no edist in name.
         val_files: list[str] = []
         for vid in f["val_ids"]:
             v_path = val_out / f"{vid}.h5ad"
@@ -277,28 +271,21 @@ def main() -> None:
         f["train"] = train_records
         f["n_train"] = int(train_total)
         f["n_val"] = int(val_total)
-        # train_ids list is now redundant with f["train"]; keep it out of folds.json
-        # to avoid confusion. We'll drop it before serializing below.
         del train_adatas, val_adatas, train_pcs, val_pcs
 
-    log.info("always-train ids (n=%d): %s", len(always_train), always_train)
-
-    # Strip the temporary train_ids/val_ids ordering keys we no longer need
-    # (val_ids stays — it's the canonical list of held-out ids per fold).
     folds_serialized = []
     for f in folds:
-        d = {
+        folds_serialized.append({
             "fold": f["fold"],
             "val_ids": f["val_ids"],
             "val_files": f["val_files"],
             "train": f["train"],
             "n_train": f["n_train"],
             "n_val": f["n_val"],
-        }
-        folds_serialized.append(d)
+        })
 
     cfg = {
-        "source": str(SRC),
+        "source": str(OLD_KFOLD_SRC),
         "id_column": COL,
         "n_folds": N_FOLDS,
         "val_per_fold": VAL_PER_FOLD,

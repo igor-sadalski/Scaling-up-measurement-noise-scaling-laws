@@ -1,7 +1,7 @@
 """Train one SCVI per (fold, train_run), embed val pool, compute latentmi MI.
 
 For each fold directory `kfold/{K}-fold/` produced by
-`2026-04-27_build_kfold_splits.py` (2-fold CV with 50% val across the 16
+`2026-04-27_build_kfold_splits.py` (8-fold CV with 50% val across the 16
 author_experimental_ids), the fold's `train/` holds 8 per-run h5ads
 (`{run}_edist{value}.h5ad`) and `val/` holds 8 per-run h5ads. This script
 trains one SCVI model per training run on its single ~10k-cell h5ad,

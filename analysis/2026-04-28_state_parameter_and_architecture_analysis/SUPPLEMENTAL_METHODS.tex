@@ -23,13 +23,13 @@
 
 \section{STATE}
 
-We benchmarked the State Embedding (``SE'') stage of STATE\cite{adduri2025state}, a self-supervised cell-embedding transformer trained with a tabular optimal-transport-style loss (Wasserstein + energy kernel) over masked gene-expression ``sentences''. Each cell is tokenized into a sequence of (gene, count) pairs, gene tokens are mapped to fixed protein-language-model embeddings, and the sequence is processed by a transformer encoder; a binary decoder simultaneously predicts gene presence to encourage sparse reconstruction.
+We benchmarked the State Embedding (``SE'') stage of STATE\cite{adduri2025state}, a self-supervised cell-embedding transformer trained with a tabular energy loss over masked gene-expression ``sentences''. Each cell is tokenized into a sequence of (gene, count) pairs, gene tokens are mapped to fixed protein-language-model embeddings, and the sequence is processed by a transformer encoder; a reconstruction decoder predicts per-gene expression values across the masked positions.
 
-Following the published recipe, gene tokens are replaced with pretrained protein embeddings from TranscriptFormer\cite{pearce2025transcriptformer}, a cross-species single-cell foundation model. We use the 2{,}560-dimensional gene embeddings released by TranscriptFormer for both \emph{Mus musculus} and \emph{Homo sapiens}, merged into a single multi-species table and matched to each dataset's gene names via Ensembl identifier resolution.
+Following the published recipe, gene tokens are replaced with pretrained protein embeddings from TranscriptFormer\cite{pearce2025transcriptformer}, a cross-species single-cell foundation model that encodes each gene using ESM-2\cite{lin2023esm2} protein language model embeddings. We use the 2{,}560-dimensional gene embeddings released by TranscriptFormer for both \emph{Mus musculus} and \emph{Homo sapiens}, merged into a single multi-species table.
 
-To make STATE comparable to the Geneformer baseline used elsewhere in this study, we override the published SE defaults to a smaller architecture (Table~\ref{tab:state_params}): 256 hidden, 4 attention heads, 3 transformer layers, 512 feed-forward, 256-dim cell-embedding output, dropout 0.02. Because gene tokens are mapped to a fixed embedding table, the trainable parameter count of SE under our configuration is dominated by the encoder, transformer, and decoder ($\sim$3.5--4M trainable parameters across datasets), rather than by a learned gene-vocabulary embedding.
+To make STATE comparable to the Geneformer baseline used elsewhere in this study, we override the published SE defaults to a smaller architecture (Table~\ref{tab:state_params}). The full set of hyperparameters used for from-scratch training is reported in Table~\ref{tab:state_params}.
 
-Unlike Geneformer and SCVI, STATE training duration is governed by a fixed \emph{step} budget chosen so that the total amount of optimization remains roughly constant across the sweep, with step-based early stopping (patience $= 5$ validation windows) acting as an upper bound. After training, the best checkpoint is selected by minimum validation loss, and cell embeddings are extracted from this checkpoint for downstream mutual-information estimation.
+Unlike Geneformer and SCVI, STATE training duration is governed by a fixed \emph{step} budget chosen so that the total amount of optimization remains roughly constant across the sweep, with step-based early stopping acting as an upper bound. After training, the best checkpoint is selected by minimum validation loss, and cell embeddings are extracted from this checkpoint for downstream mutual-information estimation.
 
 Figure~\ref{fig:state_training_loss} shows representative training and validation loss curves for SE trained on PBMC at the largest dataset size (46{,}415 cells) and full quality. Both losses decrease monotonically and the validation curve closely tracks training, indicating stable convergence without overfitting.
 
@@ -56,65 +56,58 @@ Attention heads & 4 \\
 Feed-forward dimension & 512 \\
 Cell-embedding (output) dimension & 256 \\
 Maximum sequence length & 2{,}048 tokens \\
-Dropout & 0.02 \\
-Gene token embedding & TranscriptFormer protein embeddings (2{,}560-dim, mouse + human) \\
+Gene token embedding & TranscriptFormer protein embeddings (ESM-2, 2{,}560-dim, mouse + human) \\
 Token-level objective & 20\% variable masking \\
-Reconstruction head & Binary gene-presence decoder + count head \\
-Loss & Tabular (Wasserstein + energy kernel) \\
+Reconstruction head & Per-gene decoder + count head \\
+Loss & Tabular energy loss (energy distance, gene- and cell-level) \\
 \midrule
 \multicolumn{2}{l}{\textit{Optimization}} \\
 Optimizer & AdamW \\
 Maximum learning rate & $1 \times 10^{-4}$ \\
 Weight decay & 0.01 \\
+Dropout & 0.1 \\
 Maximum gradient norm & 0.8 \\
 Global batch size & 64 \\
-LR schedule & OneCycleLR (warmup $0.33$, end $1.0$) \\
+LR schedule & Linear warmup (0.33 $\to$ 1.0, 3\% of steps) + cosine decay \\
 \midrule
 \multicolumn{2}{l}{\textit{Training and checkpointing}} \\
 Validation interval & 1{,}000 optimizer steps \\
 Validation batches per check & 50 \\
 Best-checkpoint selection & Minimum validation loss \\
-Early-stopping patience & 5 validation windows ($\geq 1$-epoch warm-up) \\
+Early stopping & Step-based, monitor: validation loss \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\section{Hyperparameter Selection for From-Scratch Training}
-
-To select the regularization and optimization hyperparameters used in the from-scratch STATE (SE) training, we ran a random search over the PBMC dataset at the largest available size (100{,}000 cells) across all 10 quality levels. The model architecture was held fixed at the values in Table~\ref{tab:state_params}. Four hyperparameters were swept independently:
-
-\begin{itemize}
-    \item \textbf{Dropout}: $\{0.0, 0.1, 0.2, 0.3\}$
-    \item \textbf{Batch size}: $\{32, 64, 128\}$
-    \item \textbf{Maximum learning rate}: $\{10^{-6}, 10^{-5}, 5\times10^{-5}, 10^{-4}, 5\times10^{-4}, 10^{-3}\}$
-    \item \textbf{Weight decay}: $\{10^{-4}, 10^{-3}, 10^{-2}, 10^{-1}\}$
-\end{itemize}
-
-Eight configurations were sampled at random (seed 42) without replacement from the Cartesian product of the above grids, excluding the production baseline. The production baseline (dropout $= 0.1$, batch size $= 64$, max LR $= 10^{-4}$, weight decay $= 10^{-2}$) was always included as an additional trial, yielding 9 trials in total. Each trial was trained for a fixed budget of 15{,}000 optimizer steps, with validation and early stopping (patience $= 5$ windows at 1{,}000-step intervals) matching the production pipeline exactly. The configuration with the highest mean mutual information across all size–quality cells was selected and carried forward as the production hyperparameters reported in Table~\ref{tab:state_params}.
+\FloatBarrier
 
 \section{Fine-Tuning the Pretrained SE-100M Model}
 
-In addition to training STATE from scratch, we evaluated fine-tuning the publicly released Arc Institute SE-100M embedding model\cite{adduri2025state} on the PBMC noise-scaling grid. SE-100M was pretrained on a large multi-dataset corpus (scBasecamp / CellxGene / Tahoe; $\sim$14{,}418 dataset classes) using the full STATE self-supervised objective with dataset-level batch correction.
+In addition to training STATE from scratch, we evaluated fine-tuning the publicly released Arc Institute SE-100M embedding model\cite{adduri2025state} on the PBMC noise-scaling grid. SE-100M was pretrained on a large multi-dataset corpus using the full STATE self-supervised objective with dataset-level batch correction. To fine-tune SE-100M, we first downloaded the pretrained model checkpoint and stripped all optimizer and scheduler state, resetting the epoch and step counters to zero while retaining the model weights. This ensures that fine-tuning begins from the pretrained representation with a freshly initialized optimizer and learning-rate schedule. For each (size, quality) cell in the grid, gene token mappings were re-generated using SE-100M's own protein embedding vocabulary---also based on ESM-2\cite{lin2023esm2}---so that the tokenization is consistent with the pretrained weights. The stripped checkpoint was then placed as the training start point for each cell. Each cell was fine-tuned independently for a fixed 3-epoch budget with early stopping disabled, so all cells received the same number of epochs. The batch-correction head was kept enabled during fine-tuning (matching the pretrained architecture exactly) to avoid weight-shape mismatches at checkpoint load; the head receives a placeholder dataset label signal on PBMC that does not affect the encoder gradients. After fine-tuning, cell embeddings were extracted from the end-of-training checkpoint and mutual information was estimated against \texttt{celltype.l3} and \texttt{protein\_counts}. The fine-tuning hyperparameters are summarized in Table~\ref{tab:finetune_params}.
 
-\paragraph{Checkpoint preparation.}
-The SE-100M snapshot was downloaded from HuggingFace (\texttt{arcinstitute/SE-100M}). Before fine-tuning, the pretrained Lightning checkpoint was stripped of all optimizer, scheduler, and loop state, retaining only the \texttt{state\_dict}. The epoch counter was reset to 0 and the global step to 0, so Lightning re-initializes a fresh optimizer and schedule at the start of fine-tuning rather than resuming from the pretrain trajectory. This stripped ``weights-only'' checkpoint was placed in the checkpoint directory where Lightning's auto-resume logic picks it up as \texttt{last.ckpt}.
-
-\paragraph{Gene vocabulary alignment.}
-SE-100M uses its own gene embedding table (TranscriptFormer protein embeddings). For each (size, quality) cell, \texttt{state emb preprocess} was re-run against SE-100M's \texttt{protein\_embeddings.pt} vocabulary to produce a fresh token mapping (\texttt{ds\_emb\_mapping} / \texttt{valid\_genes\_masks}) consistent with the pretrained weights. This preprocessing was run in parallel across cells prior to the fine-tune sweep.
-
-\paragraph{Fine-tuning protocol.}
-Each (size, quality) cell was fine-tuned for a fixed 3-epoch budget with early stopping disabled, so every cell received the same total amount of optimization. Key hyperparameters are summarized below:
-
-\begin{itemize}
-    \item \textbf{Maximum learning rate}: $10^{-6}$ (10$\times$ below SE-100M's pretraining rate of $10^{-5}$), scaled proportionally by $\max(0.3, \sqrt{N/10{,}000})$ for cells with fewer than 10{,}000 training cells to prevent over-regularization at small sizes.
-    \item \textbf{LR schedule}: OneCycleLR with start $=$ end $= 1.0$ (collapses the warmup ramp to a flat cosine decay, avoiding LR overshoot at fine-tune scale).
-    \item \textbf{Gradient accumulation}: 16 steps, yielding an effective batch size of $64 \times 16 = 1{,}024$, matching SE-100M's pretraining effective batch.
-    \item \textbf{Dropout}: 0.15 for cells with $\geq 10{,}000$ cells, 0.20 for smaller cells.
-    \item \textbf{Weight decay}: 0.01 for cells with $\geq 10{,}000$ cells, 0.05 for smaller cells.
-    \item \textbf{Dataset correction}: Kept enabled (\texttt{model.dataset\_correction=true}) with \texttt{num\_datasets=14418} to match SE-100M's pretrained \texttt{state\_dict} shape exactly; the batch-correction classifier head receives a meaningless label signal on PBMC but does not interfere with the encoder gradients.
-\end{itemize}
-
-After fine-tuning, the best checkpoint was selected by minimum validation loss (falling back to the end-of-training weights when no validation window fired within the 3-epoch budget), and test-set cell embeddings were extracted for downstream mutual-information estimation against \texttt{celltype.l3} and \texttt{protein\_counts}.
+\begin{table}[!htbp]
+\centering
+\caption{Hyperparameters for fine-tuning SE-100M on the PBMC noise-scaling grid. $N$ denotes the number of training cells.}
+\label{tab:finetune_params}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Training epochs & 3 (fixed; no scaling with $N$) \\
+Early stopping & Disabled \\
+Base maximum learning rate & $1 \times 10^{-6}$ \\
+LR scaling (small $N$) & $\max\!\left(0.3,\,\sqrt{N/10{,}000}\right) \times 10^{-6}$ for $N < 10{,}000$ \\
+LR schedule & Cosine decay (no warmup ramp) \\
+Batch size & 64 \\
+Gradient accumulation steps & 16 \\
+Effective batch size & 1{,}024 \\
+Dropout & 0.15 ($N \geq 10{,}000$); \; 0.20 ($N < 10{,}000$) \\
+Weight decay & 0.01 ($N \geq 10{,}000$); \; 0.05 ($N < 10{,}000$) \\
+Checkpoint selection & End-of-training weights (no validation windows in 3-epoch budget) \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \FloatBarrier
 
@@ -125,6 +118,9 @@ Adduri, A. K., Gautam, D., Bevilacqua, B., Imran, A., Shah, R., Naghipourfar, M.
 
 \bibitem{pearce2025transcriptformer}
 Pearce, J. D., Simmonds, S. E., Mahmoudabadi, G., Krishnan, L., Palla, G., Istrate, A.-M., Tarashansky, A., Nelson, B., Valenzuela, O., Li, D., Quake, S. R., \& Karaletsos, T. (2025). A cross-species generative cell atlas across 1.5 billion years of evolution: the TranscriptFormer single-cell model. \textit{bioRxiv}. \url{https://www.biorxiv.org/content/10.1101/2025.04.25.650731v2}
+
+\bibitem{lin2023esm2}
+Lin, Z., Akin, H., Rao, R., Hie, B., Zhu, Z., Lu, W., Smetanin, N., Verkuil, R., Kabeli, O., Shmueli, Y., dos Santos Costa, A., Fazel-Zarandi, M., Sercu, T., Candido, S., \& Rives, A. (2023). Evolutionary-scale prediction of atomic-level protein structure with a language model. \textit{Science}, 379(6637), 1123--1130.
 
 \bibitem{theodoris2023geneformer}
 Theodoris, C. V., Xiao, L., Chopra, A., Chaffin, M. D., Al Sayed, Z. R., Hill, M. C., Mantineo, H., Brydon, E., Zeng, Z., Liu, X. S., \& Ellinor, P. T. (2023). Transfer learning enables predictions in network biology. \textit{Nature}, 618(7965), 616--624.
