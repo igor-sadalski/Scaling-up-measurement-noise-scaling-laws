@@ -107,6 +107,12 @@ Conventions:
 | `2026-04-24_11-49_compute_shendure_geneformer_checkpoint_mi.json` | Per-ckpt MI structured log | JSON array of jobs (`size, quality, results=[{checkpoint, mi, status, error, raw_mi_map}]`) | (Output) | JSON log | Fault-recovery + result inspection |
 | `2026-04-24_11-49_plotting_shendure_geneformer_checkpoint_mi.ipynb` | Geneformer-ckpt MI plots | MI vs ckpt number per size/quality | Per-ckpt LMI files | Line plots, panels per size/quality | Visualize MI convergence + over-/under-fitting |
 | `2026-04-24_19-00_compute_update_state_larry_merfish.py` | Append STATE rows to master MI CSV | Walks larry + merfish STATE results, appends rows to `collect_mi_results.csv` (schema: dataset, size, quality, algo, signal, seed, mi_value, umis_per_cell); regenerates PNG | STATE MI files, existing master CSV | Updated `collect_mi_results.csv` + `.png` | Fill missing STATE rows + regenerate master plots |
+| `2026-04-27_build_batch_effects_h5ad.py` | Build batch-effects h5ad | Constructs h5ad with simulated or real batch effects for confound-sensitivity analysis | Raw datasets | Batch-effects h5ad | Test whether LMI is sensitive to batch confounders |
+| `2026-04-27_build_kfold_splits.py` | Build k-fold splits | Creates 8-fold stratified train/val splits for shendure; serialises per-fold index arrays | Shendure h5ad | Per-fold index files | Enable cross-validated MI estimates |
+| `2026-04-27_compute_kfold_scvi_lmi.py` | K-fold SCVI LMI | Trains SCVI per fold on shendure; computes LMI on held-out validation set; one row per (fold, quality, signal) | Per-fold indices, shendure | `final_results/kfold_scvi_lmi.csv` | Validate SCVI MI via cross-validation, not just a single train/test split |
+| `2026-04-27_plotting_kfold_scvi_lmi.ipynb` | K-fold LMI plots | Loads `kfold_scvi_lmi.csv`; plots per-fold LMI estimates with variance bands | `kfold_scvi_lmi.csv` | `final_results/kfold_scvi_lmi.png` | Visualise cross-fold stability of MI |
+| `2026-04-28_author_day_per_fold.ipynb` | Author-day label distribution | Checks that `author_day` temporal labels are balanced across k-folds | Per-fold indices, shendure metadata | Pivot tables, histograms | Ensure stratification preserves temporal label distribution |
+| `2026-04-28_verifying_geomdistance.ipynb` | Geometric-distance sanity check | Computes pairwise geometric distances between embeddings as an MI-independent similarity metric | Embeddings | Distance statistics, comparison plots | Cross-validate MI trends with geometry-based metric |
 
 ---
 
@@ -168,6 +174,8 @@ CSV/PNG pairs share a name: the `.csv` is the data, the `.png` is the matching f
 | `geneformer_model_size_sweep.png` | Geneformer model-size scaling | MI vs `trainable_params_M` | matching `.csv` | Scatter ± power-law fit | Capacity-scaling for Geneformer |
 | `hyperpam_sweep.csv` | STATE hp tuning | Grid over (max_lr, batch, dropout, wd) on PBMC 100k; records trial id, params, final MI | Hp trials | Wide table | Find best STATE hyperparameters |
 | `hyperpam_sweep.png` | Hp-sweep heatmap | MI heatmap indexed by hp axes; highlights best | matching `.csv` | Heatmap PNG | Visualize hp sensitivity |
+| `kfold_scvi_lmi.csv` | K-fold SCVI MI table | LMI per (fold, quality, size) for shendure SCVI; 8 folds | K-fold SCVI training runs | Long table | Cross-validated MI estimates for robustness check |
+| `kfold_scvi_lmi.png` | K-fold LMI figure | Per-fold LMI line plots with variance bands across quality | `kfold_scvi_lmi.csv` | PNG | Visualise fold-to-fold stability of MI estimates |
 | `ksg_vs_quality_shendure_SCVI.csv` | KSG vs LMI on shendure SCVI | KSG (k-NN) vs LMI estimates by quality + size | SCVI embeddings, shendure data | Table: probe, dataset, algo, quality, size, mi_bits | Validate scaling laws aren't an LMI artifact |
 | `ksg_vs_quality_shendure_SCVI.png` | KSG-vs-LMI plot | Overlays both estimators across quality | matching `.csv` | Dual-curve PNG | Robustness check across MI estimators |
 | `linear_probe_scaling.csv` | Linear-probe R² vs (size, quality) | Ridge regression on embeddings predicting label; reports `mean_r2` | Embeddings + labels | Long table | Alt downstream metric vs MI |
@@ -177,3 +185,24 @@ CSV/PNG pairs share a name: the `.csv` is the data, the `.png` is the matching f
 | `shendure_geneformer_checkpoint_mi.png` | Per-ckpt MI curves | MI vs step per quality; saturation point | matching `.csv` | Multi-line step plot | Visualize learning trajectory |
 | `state_model_size_sweep.csv` | STATE model-size sweep on PBMC | STATE arch ablation; `trainable_params_M`, `mi_protein_counts` | STATE training | Table | STATE capacity scaling |
 | `state_model_size_sweep.png` | STATE model-size scaling | MI vs `trainable_params_M` | matching `.csv` | Scatter ± fit | Compare STATE capacity vs Geneformer |
+
+---
+
+## 6. `2026-04-28_data_availability/`
+
+| File | Short description | What it does (how) | Inputs | Outputs | Motivation |
+|------|-------------------|--------------------|--------|---------|------------|
+| `DATA_AVAILABILITY.tex` | Data availability statement (LaTeX source) | Documents where all datasets and results live: S3 bucket paths, local `DATA_DIR`, and download instructions | S3 paths + repo conventions | Source for PDF | Reproducibility — readers can fetch exact data used |
+| `DATA_AVAILABILITY.pdf` | Compiled data availability statement | PDF rendering of `DATA_AVAILABILITY.tex` | LaTeX source | Distributable PDF | Publication / supplement |
+| LaTeX build artifacts (`.aux`, `.out`) | pdflatex byproducts | Generated during PDF compile | TeX source | Index files | Incremental builds |
+
+---
+
+## 7. `2026-04-28_state_parameter_and_architecture_analysis/`
+
+| File | Short description | What it does (how) | Inputs | Outputs | Motivation |
+|------|-------------------|--------------------|--------|---------|------------|
+| `state_pretraining_and_fine_tunning_appendix.tex` | STATE pretraining + fine-tuning appendix (LaTeX source) | Documents STATE SE architecture, pretraining protocol (15k steps, lr=5e-4, ESM2 gene embeds), and 1-epoch fine-tuning procedure (lr=1e-5); includes loss curves and param counts | Theory + training logs | Source for PDF | Reproducibility + comparison with large-scale STATE variants |
+| `state_pretraining_and_fine_tunning_appendix.pdf` | Compiled STATE appendix | PDF rendering of the appendix tex source | LaTeX source + figure | Distributable PDF | Publication / supplement |
+| `loss_train_eval_state_pbmc_46k_quality1.png` | STATE PBMC 46k @ q=1.0 loss curves | Training + validation loss vs step | STATE training logs | PNG figure | Show stable convergence of from-scratch STATE |
+| LaTeX build artifacts (`.aux`, `.out`) | pdflatex byproducts | Generated during PDF compile | TeX source | Index files | Incremental builds |
