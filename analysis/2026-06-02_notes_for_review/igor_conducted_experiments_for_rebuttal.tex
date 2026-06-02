@@ -70,10 +70,7 @@ training), producing a masked-language-modelling cross-entropy loss
 saved to \texttt{test\_loss.txt}.
 This is a fresh inference pass on unseen data, not the validation loss
 recorded in the training log.
-These 400 scalar values were plotted on a log--log scale and a
-power law $\mathcal{L}(N) \propto N^{-\alpha}$ was fitted independently
-for each quality level using ordinary least squares on the log-transformed
-values.
+These 400 scalar values were plotted on a log--log scale.
 
 \medskip
 \noindent\textbf{Data:} \path{analysis/final_results/geneformer_loss_scaling.csv}
@@ -81,8 +78,8 @@ values.
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth,height=0.65\textheight,keepaspectratio]{../final_results/geneformer_loss_scaling.png}
-\caption{Geneformer final validation loss vs.\ training-set size on a
-log--log scale, with power-law fits per quality level.}
+\caption{Geneformer final test loss vs.\ training-set size on a
+log--log scale, one curve per quality level.}
 \label{fig:loss_scaling}
 \end{figure}
 \clearpage
@@ -230,7 +227,7 @@ y-axis is MI on \texttt{protein\_counts} (nats).}
 \clearpage
 
 %% ============================================================
-\section{MI Estimator Robustness: KSG vs.\ LMI}
+\section{KSG Mutual Information Estimates}
 
 As an estimator-independent cross-check, MI was recomputed using the
 KSG $k$-nearest-neighbour estimator ($k{=}3$, base-2 logarithm, values
@@ -247,8 +244,7 @@ together and compared: a scatter of KSG (bits) vs.\ LMI
 was produced with a linear fit and Pearson/Spearman correlation statistics.
 The final CSV and figure saved to \texttt{final\_results} contain only the
 KSG values (column \texttt{mi\_bits}), showing KSG MI in bits as a function
-of quality with one curve per dataset size; the KSG--LMI correlation
-scatter is available in the analysis notebook but not saved here.
+of quality with one curve per dataset size.
 
 \medskip
 \noindent\textbf{Data:} \path{analysis/final_results/ksg_vs_quality_shendure_SCVI.csv}
@@ -257,9 +253,7 @@ scatter is available in the analysis notebook but not saved here.
 \centering
 \includegraphics[width=0.85\textwidth,height=0.65\textheight,keepaspectratio]{../final_results/ksg_vs_quality_shendure_SCVI.png}
 \caption{KSG MI (bits) for SCVI on shendure vs.\ measurement quality (log
-scale), one curve per dataset size.
-The KSG--LMI correlation scatter with fit statistics is in the analysis
-notebook.}
+scale), one curve per dataset size.}
 \label{fig:ksg_vs_lmi}
 \end{figure}
 \clearpage
@@ -269,32 +263,32 @@ notebook.}
 
 Supervised probes were trained on top of frozen embeddings to assess
 downstream-task performance independently of MI.
-The prediction target and probe type differ by dataset:
+The probe type and plotted metric differ by dataset:
 
 \begin{itemize}
   \item \textbf{PBMC} --- Ridge regression ($\alpha{=}1.0$) predicting
-    surface \texttt{protein\_counts} (multi-output); metrics: mean $R^2$,
-    MSE, and MAE across protein channels.
+    surface \texttt{protein\_counts} (multi-output); plotted metric:
+    mean $R^2$ across protein channels.
   \item \textbf{MERFISH} --- Ridge regression ($\alpha{=}1.0$) predicting
     the embedding of each cell's nearest-neighbour in gene-expression
-    space (\texttt{ng\_idx}); metrics: mean $R^2$, MSE, MAE.
+    space (\texttt{ng\_idx}); plotted metric: mean $R^2$.
   \item \textbf{larry} --- Lineage prediction via Ridge regression
     ($\alpha{=}1.0$): embeddings of early time-point cells (days 2 and 4)
     are used to predict the embedding of the matched late time-point cell
     (day 6) sharing the same clone barcode.
     Clone-matched pairs are sampled once per clone; clones absent from
     either time point are excluded.
-    Metrics: mean $R^2$, MSE, MAE across embedding dimensions.
+    Plotted metric: mean $R^2$ across embedding dimensions.
   \item \textbf{shendure} --- Multi-class \texttt{author\_day}
-    classification using a $k$-NN probe ($k{=}5$) and a multinomial
-    logistic regression (L-BFGS solver, max iterations 2\,000);
-    metrics: accuracy and macro-averaged F1.
+    classification using a multinomial logistic regression
+    (L-BFGS solver, max iterations 2\,000);
+    plotted metric: accuracy.
 \end{itemize}
 
 In all cases the data were split 70/30 (train/test) with seed 42, and
 embeddings were subsampled to at most 100\,000 rows where necessary.
 All (algorithm, dataset, cell-count, quality) combinations were evaluated
-in parallel using 8 workers and assembled into a single long-format table.
+and assembled into a single long-format table.
 Scaling curves were plotted on log--log axes with one curve per algorithm,
 as a function of both quality and cell count, with datasets in separate
 panels.
@@ -325,7 +319,6 @@ LMI was computed with \texttt{latentmi} using a fixed random seed
 of 42, a maximum of 300 training epochs, and an inference batch size
 of 50.
 The signal used was \texttt{author\_day}, one-hot encoded.
-The evaluation was run across 8 GPUs.
 The resulting per-checkpoint MI values were plotted as a function of
 training step, with one panel per dataset size and one curve per
 quality level within each panel.
