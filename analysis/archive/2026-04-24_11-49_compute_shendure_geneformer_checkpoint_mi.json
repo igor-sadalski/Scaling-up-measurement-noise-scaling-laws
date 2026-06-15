@@ -1,0 +1,18 @@
+[
+  {
+    "size": "1291",
+    "quality": "0.2931733",
+    "gpu_id": 6,
+    "results": [
+      {
+        "checkpoint": "checkpoint-3000",
+        "mi": 1.09596,
+        "status": "ok",
+        "error": null,
+        "raw_mi_map": {
+          "Y_author_day_0.2931733_geneformer.csv": 1.0959581726920167
+        }
+      }
+    ]
+  }
+]

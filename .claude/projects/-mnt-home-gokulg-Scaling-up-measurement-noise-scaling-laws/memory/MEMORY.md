@@ -1,0 +1,1 @@
+- [code-style-simple](code-style-simple.md) — keep code simple/concise, no decorative comments, no needless abstraction; plots small, lowercase, no titles/bold
