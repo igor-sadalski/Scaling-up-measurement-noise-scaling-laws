@@ -1,0 +1,125 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage[numbers]{natbib}
+\usepackage{placeins}
+\usepackage{graphicx}
+
+\title{Supplemental Methods: STATE}
+\author{}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{STATE}
+
+We benchmarked the State Embedding (``SE'') stage of STATE\cite{adduri2025state}, a self-supervised cell-embedding transformer. Each cell is represented as an ordered sequence of its most highly expressed genes (up to 2{,}048 tokens), with expression magnitude incorporated via soft count binning added to gene token embeddings. A bidirectional transformer encoder processes this sequence to produce a fixed-dimensional cell embedding. During training, the model predicts expression for 1{,}280 target genes per cell---512 highly expressed, 512 unexpressed, and 256 shared across the batch---using a dual-axis tabular energy loss: an energy distance computed gene-wise within each cell and cell-wise across cells for the shared gene subset.
+
+Following the published recipe, gene tokens are represented using ESM-2\cite{lin2023esm2} protein language model embeddings---specifically, the same 2{,}560-dimensional, multi-species (\emph{Mus musculus} + \emph{Homo sapiens}) gene embedding table released alongside TranscriptFormer\cite{pearce2025transcriptformer}.
+
+To make STATE comparable to the Geneformer\cite{theodoris2023geneformer} baseline used elsewhere in this study, we override the published SE defaults to a smaller architecture (Table~\ref{tab:state_params}). The full set of hyperparameters used for from-scratch training is reported in Table~\ref{tab:state_params}.
+
+Unlike Geneformer and SCVI, STATE training duration is governed by a fixed \emph{step} budget chosen so that the total amount of optimization remains roughly constant across the sweep, with step-based early stopping acting as an upper bound. After training, the best checkpoint is selected by minimum validation loss, and cell embeddings are extracted from this checkpoint for downstream mutual-information estimation.
+
+Figure~\ref{fig:state_training_loss} shows representative training and validation loss curves for SE trained on PBMC at the largest dataset size (46{,}415 cells) and full quality. Both losses decrease monotonically and the validation curve closely tracks training, indicating stable convergence without overfitting.
+
+\begin{figure}[!htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{loss_train_eval_state_pbmc_46k_quality1.png}
+\caption{Training and validation loss curves for STATE SE trained on PBMC (46{,}415 cells, quality $=1.0$), shown on linear axes. Validation is computed every 1{,}000 optimizer steps. The raw per-step training loss is plotted faintly in the background, and the bold blue curve overlays a centered rolling mean (window $=$ 200 steps) to suppress minibatch noise; no other smoothing is applied. The validation curve is shown unsmoothed (one point per evaluation).}
+\label{fig:state_training_loss}
+\end{figure}
+
+\begin{table}[!htbp]
+\centering
+\caption{Hyperparameters for STATE (SE) as used in this study.}
+\label{tab:state_params}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+\multicolumn{2}{l}{\textit{Model architecture}} \\
+Number of transformer layers & 3 \\
+Hidden dimension & 256 \\
+Attention heads & 4 \\
+Feed-forward dimension & 512 \\
+Cell-embedding (output) dimension & 256 \\
+Maximum sequence length & 2{,}048 tokens \\
+Gene token embedding & TranscriptFormer protein embeddings (ESM-2, 2{,}560-dim, mouse + human) \\
+\midrule
+\multicolumn{2}{l}{\textit{Optimization}} \\
+Optimizer & AdamW \\
+Maximum learning rate & $1 \times 10^{-4}$ \\
+Weight decay & 0.01 \\
+Dropout & 0.1 \\
+Maximum gradient norm & 0.8 \\
+Global batch size & 64 \\
+LR schedule & Linear warmup (0.33 $\to$ 1.0, 3\% of steps) + cosine decay \\
+\midrule
+\multicolumn{2}{l}{\textit{Training and checkpointing}} \\
+Validation interval & 1{,}000 optimizer steps \\
+Validation batches per check & 50 \\
+Best-checkpoint selection & Minimum validation loss \\
+Early stopping & Step-based, monitor: validation loss \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+
+\section{Fine-Tuning the Pretrained SE-100M Model}
+
+In addition to training STATE from scratch, we evaluated fine-tuning the publicly released Arc Institute SE-100M embedding model\cite{adduri2025state} on the PBMC noise-scaling grid. SE-100M was pretrained on a large multi-dataset corpus using the full STATE self-supervised objective. To fine-tune SE-100M, we first downloaded the pretrained model checkpoint and stripped all optimizer and scheduler state, resetting the epoch and step counters to zero while retaining the model weights. This ensures that fine-tuning begins from the pretrained representation with a freshly initialized optimizer and learning-rate schedule. For each (size, quality) cell in the grid, gene token mappings were re-generated using SE-100M's own protein embedding vocabulary---also based on ESM-2\cite{lin2023esm2}---so that the tokenization is consistent with the pretrained weights. The stripped checkpoint was then placed as the training start point for each cell. Each cell was fine-tuned independently for a fixed 3-epoch budget with early stopping disabled, so all cells received the same number of epochs. The fine-tuning hyperparameters are summarized in Table~\ref{tab:finetune_params}.
+
+\begin{table}[!htbp]
+\centering
+\caption{Hyperparameters for fine-tuning SE-100M on the PBMC noise-scaling grid. $N$ denotes the number of training cells.}
+\label{tab:finetune_params}
+\small
+\begin{tabular}{ll}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Training epochs & 3 (fixed; no scaling with $N$) \\
+Early stopping & Disabled \\
+Base maximum learning rate & $1 \times 10^{-6}$ \\
+LR scaling (small $N$) & $\max\!\left(0.3,\,\sqrt{N/10{,}000}\right) \times 10^{-6}$ for $N < 10{,}000$ \\
+LR schedule & Cosine decay (no warmup ramp) \\
+Effective batch size & 1{,}024 \\
+Dropout & 0.15 ($N \geq 10{,}000$); \; 0.20 ($N < 10{,}000$) \\
+Weight decay & 0.01 ($N \geq 10{,}000$); \; 0.05 ($N < 10{,}000$) \\
+Checkpoint selection & End-of-training weights (no validation windows in 3-epoch budget) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\FloatBarrier
+
+\begin{thebibliography}{99}
+
+\bibitem{adduri2025state}
+Adduri, A. K., Gautam, D., Bevilacqua, B., Imran, A., Shah, R., Naghipourfar, M., Teyssier, N., Ilango, R., Nagaraj, S., Dong, M., Ricci-Tam, C., Carpenter, C., Subramanyam, V., Winters, A., Tirukkovular, S., Sullivan, J., Plosky, B. S., Eraslan, B., Youngblut, N. D., Leskovec, J., Gilbert, L. A., Konermann, S., Hsu, P. D., Dobin, A., Burke, D. P., Goodarzi, H., \& Roohani, Y. H. (2025). Predicting cellular responses to perturbation across diverse contexts with State. \textit{bioRxiv}. \url{https://www.biorxiv.org/content/10.1101/2025.06.26.661135v2}
+
+\bibitem{pearce2025transcriptformer}
+Pearce, J. D., Simmonds, S. E., Mahmoudabadi, G., Krishnan, L., Palla, G., Istrate, A.-M., Tarashansky, A., Nelson, B., Valenzuela, O., Li, D., Quake, S. R., \& Karaletsos, T. (2025). A cross-species generative cell atlas across 1.5 billion years of evolution: the TranscriptFormer single-cell model. \textit{bioRxiv}. \url{https://www.biorxiv.org/content/10.1101/2025.04.25.650731v2}
+
+\bibitem{lin2023esm2}
+Lin, Z., Akin, H., Rao, R., Hie, B., Zhu, Z., Lu, W., Smetanin, N., Verkuil, R., Kabeli, O., Shmueli, Y., dos Santos Costa, A., Fazel-Zarandi, M., Sercu, T., Candido, S., \& Rives, A. (2023). Evolutionary-scale prediction of atomic-level protein structure with a language model. \textit{Science}, 379(6637), 1123--1130.
+
+\bibitem{theodoris2023geneformer}
+Theodoris, C. V., Xiao, L., Chopra, A., Chaffin, M. D., Al Sayed, Z. R., Hill, M. C., Mantineo, H., Brydon, E., Zeng, Z., Liu, X. S., \& Ellinor, P. T. (2023). Transfer learning enables predictions in network biology. \textit{Nature}, 618(7965), 616--624. \url{https://doi.org/10.1038/s41586-023-06139-9}
+
+\end{thebibliography}
+
+\end{document}

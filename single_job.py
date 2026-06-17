@@ -68,6 +68,12 @@ parser.add_argument(
     help="Early stopping patience",
 )
 parser.add_argument(
+    "--max_steps",
+    type=int,
+    default=None,
+    help="Fixed training step budget (State only). Overrides max_epochs and disables early stopping.",
+)
+parser.add_argument(
     "--dataset",
     type=str,
     # required=True,
@@ -98,6 +104,12 @@ parser.add_argument(
     type=str2bool,
     default=True,
     help="Whether to recompute mutual information",
+)
+parser.add_argument(
+    "--recompute_loss",
+    type=str2bool,
+    default=False,
+    help="Whether to compute test loss",
 )
 parser.add_argument(
     "--checkpoint_path",
@@ -135,10 +147,12 @@ experiments.single_job(
     algo=args.algos[0],
     max_epochs=args.max_epochs,
     early_stopping_patience=args.early_stopping_patience,
+    max_steps=args.max_steps,
     device=args.device,
     retrain=args.retrain,
     reembed=args.reembed,
     recompute_mutual_information=args.recompute_mutual_information,
+    recompute_loss=args.recompute_loss,
     checkpoint_path=args.checkpoint_path,
     reembed_checkpoint=args.reembed_checkpoint,
     batch_size_inference=args.batch_size_inference,

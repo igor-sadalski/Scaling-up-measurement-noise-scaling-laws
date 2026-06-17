@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scaling_laws"
+version = "0.0.1"
+requires-python = ">=3.8"
+dependencies = [
+    "anndata>=0.11",
+    "crick",
+    "datasets>=2.12",
+    "loompy>=3.0",
+    "numpy>=1.26.4",
+    "tdigest>=0.5.2",
+    "transformers==4.40",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
