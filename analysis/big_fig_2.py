@@ -473,7 +473,16 @@ def make_figure(data):
     s, N0, I_inf = subset["s"].values[0], subset["N0"].values[0], subset["I_inf"].values[0]
 
     data_a = df[(df["quality"] == 1) & (df["algorithm"] == method) & (df["signal"] == metric)]
-    sns.scatterplot(data=data_a, x="size", y="mi_value", color=METHOD_COLOR["Geneformer"], ax=ax_a, legend=False, zorder=3)
+    data_a_agg = data_a.groupby("size")["mi_value"].agg(["mean", "min", "max", "count"]).reset_index()
+    _sizes = data_a_agg["size"].values
+    _means = data_a_agg["mean"].values
+    _yerr = [_means - data_a_agg["min"].values, data_a_agg["max"].values - _means]
+    ax_a.scatter(_sizes, _means, color=METHOD_COLOR["Geneformer"], zorder=3, s=10)
+    ax_a.errorbar(_sizes, _means, yerr=_yerr, fmt="none",
+                  color=METHOD_COLOR["Geneformer"], alpha=0.5, zorder=2, capsize=2)
+    print("Panel a — min-max interval width per cell number (Temporal MI, Geneformer, quality=1):")
+    for sz, lo, hi, n in zip(_sizes, data_a_agg["min"].values, data_a_agg["max"].values, data_a_agg["count"].values):
+        print(f"  N={sz:>10,.0f}:  seeds={n:>3}  min={lo:.4f}  max={hi:.4f}  width={hi - lo:.4f}")
 
     xs = np.logspace(1, 7, 100)
     ys = np.maximum(I_inf - (xs / N0) ** (-s), 0)
