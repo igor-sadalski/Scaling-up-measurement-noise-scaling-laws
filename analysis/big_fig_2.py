@@ -50,8 +50,8 @@ NOISE_SCALING_CSV = os.path.join(FINAL, "noise_scaling.csv")
 SEQ_CSV = os.path.join(REPO_ROOT, "seq", "multisize_gisaid_results.csv")
 TISSUE_GLOB = os.path.join(REPO_ROOT, "images", "tissuemnist_models", "result_*.csv")
 
-OUT_PDF = os.path.join(HERE, "big_fig_2.pdf")
-OUT_PNG = os.path.join(HERE, "big_fig_2.png")
+OUT_PDF = os.path.join(HERE, "figures/big_fig_2.pdf")
+OUT_PNG = os.path.join(HERE, "figures/big_fig_2.png")
 
 # Label renaming (applied to *values* across all columns, like the notebook).
 RENAME_DICT = {
@@ -228,7 +228,125 @@ def merge_and_persist(existing_csv, state_rows, key_cols):
 # Plot helpers (from the notebook)
 # ----------------------------------------------------------------------------
 def plot_points(ax, x, y, color, label, marker="o"):
-    ax.plot(x, y, color=color, marker=marker, alpha=0.7, ms=2.5, label=label, lw=0)
+    ax.plot(x, y, color=color, marker=marker, alpha=0.7, ms=2.5, label=label, lw=0, rasterized=True)
+
+
+# ----------------------------------------------------------------------------
+# Collapse-quality (R^2) helpers
+# ----------------------------------------------------------------------------
+def _universal_noise(z):
+    """Universal noise-collapse curve: y = -0.5 * log2((1 + z) / z)."""
+    z = np.asarray(z, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return -np.log2((1 + z) / z) / 2
+
+
+# Minimum number of non-NaN points a curve must have to enter the R^2 summary.
+# In the panel-b collapse coordinate, points where the fitted capacity sits below
+# the observed MI drop to NaN; a curve left with only a handful of points yields
+# an unreliable (and occasionally wildly negative) R^2, so we require at least
+# this many usable points.
+R2_MIN_POINTS = 7
+
+# (Optional) minimum within-curve MI range in bits; None disables this gate.
+# Kept available but unused by default -- MI range does not separate the genuine
+# bad-collapse curves from good ones, so the point-count gate above is used instead.
+R2_I_RANGE_MIN = None
+
+
+def _curve_stat(obs, pred, mi_values):
+    """Build a per-curve summary tuple ``(r2, n_points, mi_range, obs, pred)``.
+
+    ``obs``/``pred`` are the plotted point coords vs. the universal-curve
+    prediction (in whatever space the panel is drawn in); R^2 uses only points
+    finite in both, and the finite ``obs``/``pred`` are returned so callers can
+    pool points across curves for an overall (pooled) R^2.  ``mi_values`` are the
+    curve's raw MI values (bits), aligned with ``obs``/``pred``; ``mi_range`` is
+    their max-min *over the same points that enter the R^2*.  Restricting to the
+    used points matters: a curve can span a wide MI range overall yet keep only a
+    tight cluster after the transform drops NaNs (e.g. where the fitted capacity
+    sits below observed MI)."""
+    obs = np.asarray(obs, dtype=float)
+    pred = np.asarray(pred, dtype=float)
+    mi = np.asarray(mi_values, dtype=float)
+    mask = np.isfinite(obs) & np.isfinite(pred)
+    obs, pred = obs[mask], pred[mask]
+    n = int(obs.size)
+    mi_used = mi[mask] if mi.shape == mask.shape else mi
+    mi_used = mi_used[np.isfinite(mi_used)]
+    mi_range = float(mi_used.max() - mi_used.min()) if mi_used.size else np.nan
+    if n < 2:
+        return np.nan, n, mi_range, obs, pred
+    ss_res = np.sum((obs - pred) ** 2)
+    ss_tot = np.sum((obs - obs.mean()) ** 2)
+    if ss_tot == 0:
+        return np.nan, n, mi_range, obs, pred
+    return float(1 - ss_res / ss_tot), n, mi_range, obs, pred
+
+
+def _pooled_r2(obs, pred):
+    """Overall R^2 over a pooled set of points (obs vs. universal-curve pred)."""
+    obs = np.asarray(obs, dtype=float)
+    pred = np.asarray(pred, dtype=float)
+    if obs.size < 2:
+        return np.nan
+    ss_res = np.sum((obs - pred) ** 2)
+    ss_tot = np.sum((obs - obs.mean()) ** 2)
+    if ss_tot == 0:
+        return np.nan
+    return float(1 - ss_res / ss_tot)
+
+
+def _summarize_r2(name, stats, min_points=None, i_range_min=None):
+    """Print both the mean per-curve R^2 (+/- SEM) and the pooled (overall) R^2,
+    plus the total plotted-datapoint count.  ``stats`` is a list of
+    (r2, n_points, mi_range, obs, pred) tuples, one per curve.
+
+    The pooled R^2 concatenates points and computes a single R^2 -- unlike the
+    mean of per-curve R^2, it is not dominated by any one curve.  It is computed
+    *prior to* the ``min_points``/``i_range_min`` gates, i.e. over every collected
+    curve (the upstream PCA and low-quality exclusions still apply), so short
+    curves that are dropped from the per-curve mean still contribute their points.
+
+    A curve is excluded from the per-curve mean if it has fewer than ``min_points``
+    non-NaN points, or (when ``i_range_min`` is set) if its within-curve MI range
+    is <= that value.  Either gate is disabled by passing None."""
+    stats = [t for t in stats if t[1] > 0]
+    kept, drops = [], []
+    for r, n, rng, obs, pred in stats:
+        if min_points is not None and n < min_points:
+            drops.append("points")
+            continue
+        if i_range_min is not None and not (np.isfinite(rng) and rng > i_range_min):
+            drops.append("range")
+            continue
+        kept.append((r, n))
+    r2s = np.array([r for r, n in kept if np.isfinite(r)], dtype=float)
+    total_points = int(sum(n for _, n in kept))
+    n_curves = int(r2s.size)
+    mean = float(r2s.mean()) if n_curves else np.nan
+    sem = float(r2s.std(ddof=1) / np.sqrt(n_curves)) if n_curves > 1 else np.nan
+    median = float(np.median(r2s)) if n_curves else np.nan
+    n_neg = int((r2s < 0).sum())
+
+    # Pooled R^2 over ALL collected curves (before the per-curve gates above).
+    pooled_obs = np.concatenate([obs for _, _, _, obs, _ in stats]) if stats else np.array([])
+    pooled_pred = np.concatenate([pred for _, _, _, _, pred in stats]) if stats else np.array([])
+    pooled = _pooled_r2(pooled_obs, pooled_pred) if pooled_obs.size else np.nan
+    pooled_n = int(pooled_obs.size)
+
+    print(f"[{name}]")
+    print(f"    mean R^2   = {mean:.4f} +/- {sem:.4f} SEM  (n = {n_curves} curves, post-filter)")
+    print(f"    pooled R^2 = {pooled:.4f}  (all {pooled_n} points pooled, pre-filter)")
+    print(f"    median R^2 = {median:.4f}  |  range [{r2s.min():.4f}, {r2s.max():.4f}]  |  "
+          f"{n_neg} curve(s) with R^2 < 0")
+    if min_points is not None:
+        print(f"    dropped {drops.count('points')} curve(s) with < {min_points} non-NaN points (mean only)")
+    if i_range_min is not None:
+        print(f"    dropped {drops.count('range')} curve(s) with within-curve MI range <= {i_range_min} bits (mean only)")
+    print(f"    total datapoints = {total_points} (post-filter, mean) | {pooled_n} (pre-filter, pooled)")
+    return dict(mean=mean, sem=sem, pooled=pooled, median=median,
+                total_points=total_points, pooled_points=pooled_n)
 
 
 def fit_info_model(x_data, y_data, gate=True):
@@ -258,8 +376,16 @@ def fit_info_model(x_data, y_data, gate=True):
     return x_bar, i_max, result
 
 
-def plot_precomputed_scaling(ax, df, param_df, color_map, marker_map, hue_order_metrics, hue_order_methods):
-    """Plot precomputed scaling-collapse data (panel b)."""
+def plot_precomputed_scaling(ax, df, param_df, color_map, marker_map, hue_order_metrics, hue_order_methods,
+                             r2_stats=None, r2_exclude=("PCA",), r2_quality=None):
+    """Plot precomputed scaling-collapse data (panel b).
+
+    When ``r2_stats`` is provided, per-curve (R^2, n_points, ...) tuples are
+    appended for plotted curves whose method is not in ``r2_exclude`` (and, when
+    ``r2_quality`` is set, only for curves at that quality -- e.g. r2_quality=1
+    restricts the R^2 to the full-depth datasets).  The universal curve is y = x,
+    and R^2 is computed in log-log space (both axes are log).  Note: this gates
+    only the R^2 accounting; every curve is still plotted."""
     n_curves = 0
     for sig in hue_order_metrics:
         if sig == "Caltech101-binary":
@@ -276,15 +402,24 @@ def plot_precomputed_scaling(ax, df, param_df, color_map, marker_map, hue_order_
                 if p.empty:
                     continue
                 s, N0, I_inf = p["s"].values[0], p["N0"].values[0], p["I_inf"].values[0]
-                N_hat = avg_data.index / N0
-                plot_points(ax, N_hat, (I_inf - avg_data.values) ** (-1 / s),
-                            color_map[alg], None, marker_map[sig])
+                N_hat = np.asarray(avg_data.index / N0, dtype=float)
+                y_plot = (I_inf - avg_data.values) ** (-1 / s)
+                plot_points(ax, N_hat, y_plot, color_map[alg], None, marker_map[sig])
                 n_curves += 1
+                if (r2_stats is not None and alg not in r2_exclude
+                        and (r2_quality is None or np.isclose(q, r2_quality))):
+                    # R^2 of the fit in raw MI space (observed MI vs fitted curve).
+                    fitted = cell_number_scaling(np.asarray(avg_data.index, dtype=float), N0, s, I_inf)
+                    r2_stats.append(_curve_stat(avg_data.values, fitted, avg_data.values))
     print(f"Plotted {n_curves} scaling curves.")
 
 
-def plot_precomputed_noise(ax, df, param_df, palette, hue_order_metrics, hue_order_methods):
-    """Plot precomputed noise-collapse data (panel e), coloured by metric."""
+def plot_precomputed_noise(ax, df, param_df, palette, hue_order_metrics, hue_order_methods, r2_stats=None):
+    """Plot precomputed noise-collapse data (panel e), coloured by metric.
+
+    When ``r2_stats`` is provided, per-curve (R^2, n_points) tuples are appended
+    for every plotted curve, computed against the universal noise curve
+    y = -0.5*log2((1+z)/z) in the plotted (linear-y) coordinate space."""
     n_curves = 0
     for idx, sig in enumerate(hue_order_metrics):
         if sig == "Caltech101-binary":
@@ -300,22 +435,28 @@ def plot_precomputed_noise(ax, df, param_df, palette, hue_order_metrics, hue_ord
                     continue
                 xbar, imax = p["fitted_u_bar"].values[0], p["fitted_I_max"].values[0]
                 z = transform_to_z(avg_data.index, xbar, imax)
-                plot_points(ax, z, avg_data.values - imax, palette[idx], sig)
+                y_plot = avg_data.values - imax
+                plot_points(ax, z, y_plot, palette[idx], sig)
                 n_curves += 1
+                if r2_stats is not None:
+                    r2_stats.append(_curve_stat(y_plot, _universal_noise(z), avg_data.values))
     print(f"Plotted {n_curves} noise curves.")
 
 
-def fit_and_plot_caltech(ax, df, x_col, color):
+def fit_and_plot_caltech(ax, df, x_col, color, r2_stats=None):
     for class_label in df["Class label"].unique()[:-1]:
         data = df[df["Class label"] == class_label]
         x_data, y_data = 1 / data[x_col], data["MI"]
         x_bar, i_max, _ = fit_info_model(x_data, y_data)
         if x_bar and i_max:
             z = transform_to_z(x_data, x_bar, i_max)
-            plot_points(ax, z, y_data - i_max, color, "Caltech101-binary")
+            y_plot = np.asarray(y_data) - i_max
+            plot_points(ax, z, y_plot, color, "Caltech101-binary")
+            if r2_stats is not None:
+                r2_stats.append(_curve_stat(y_plot, _universal_noise(z), np.asarray(y_data)))
 
 
-def fit_and_plot_sequences(ax, seq_df, color):
+def fit_and_plot_sequences(ax, seq_df, color, r2_stats=None):
     for model_size in sorted(seq_df["model_size"].unique()):
         data = seq_df[seq_df["model_size"] == model_size]
         x_data = data["true/error"]
@@ -323,11 +464,14 @@ def fit_and_plot_sequences(ax, seq_df, color):
         x_bar, i_max, _ = fit_info_model(x_data, y_data)
         if x_bar and i_max:
             z = transform_to_z(x_data, x_bar, i_max)
-            plot_points(ax, z, y_data - i_max, color, "Spike seqs.")
+            y_plot = np.asarray(y_data) - i_max
+            plot_points(ax, z, y_plot, color, "Spike seqs.")
+            if r2_stats is not None:
+                r2_stats.append(_curve_stat(y_plot, _universal_noise(z), np.asarray(y_data)))
             print(f"Sequences {model_size}: x_bar={x_bar:.2f}, i_max={i_max:.2f}")
 
 
-def fit_and_plot_tissue(ax, combined_df, downsampling_type, tissue_color):
+def fit_and_plot_tissue(ax, combined_df, downsampling_type, tissue_color, r2_stats=None):
     data_subset = combined_df[combined_df["downsampling_type"] == downsampling_type].copy()
     x_transform = (lambda x: x ** 2) if downsampling_type == "pixel" else (lambda x: x)
     data_subset["inv_factor"] = 1 / data_subset["downsampling_level"]
@@ -341,7 +485,10 @@ def fit_and_plot_tissue(ax, combined_df, downsampling_type, tissue_color):
         x_bar, i_max, _ = fit_info_model(x_data, y_data)
         if x_bar and i_max:
             z = transform_to_z(x_data, x_bar, i_max)
-            plot_points(ax, z, y_data - i_max, tissue_color, "TissueMNIST")
+            y_plot = np.asarray(y_data) - i_max
+            plot_points(ax, z, y_plot, tissue_color, "TissueMNIST")
+            if r2_stats is not None:
+                r2_stats.append(_curve_stat(y_plot, _universal_noise(z), np.asarray(y_data)))
 
 
 # ----------------------------------------------------------------------------
@@ -448,6 +595,71 @@ PALETTE_TISSUE = ("#CBC106FF, #27993CFF, #1C6838FF, #8EBCB5FF, #389CA7FF, "
 
 
 # ----------------------------------------------------------------------------
+# Legend + row-title helpers
+# ----------------------------------------------------------------------------
+def style_legend(leg):
+    """Remove the box around a legend and bold its title (if it has one)."""
+    if leg is None:
+        return
+    leg.set_frame_on(False)
+    title = leg.get_title()
+    if title is not None and title.get_text():
+        title.set_fontweight("bold")
+
+
+ROW_TITLES = [
+    "Cell number scaling (transcriptomics)",
+    "Noise scaling in transcriptomics",
+    "Universal noise scaling (transcriptomics, sequences, imaging)",
+    "Noise scaling benchmarks the sensitivity and capacity of models",
+    "Noise scaling in protein sequences and imaging data",
+]
+
+
+def _tight_bbox(ax, renderer, inv):
+    """(x0, y0, x1, y1) of an axis *including* tick labels, axis labels and any
+    attached legend, in figure fraction."""
+    bb = ax.get_tightbbox(renderer)
+    (x0, y0), (x1, y1) = inv.transform(((bb.x0, bb.y0), (bb.x1, bb.y1)))
+    return x0, y0, x1, y1
+
+
+def add_row_titles(fig, row_axes_groups, titles, fontsize=11):
+    """Draw a horizontal divider spanning the full figure content width above
+    each row, with the row title centered in a gap of the line (the gap is made
+    by a white text background).  The span includes the panel letters on the
+    left and any legends on the right.  Must be called after tight_layout.
+    """
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    inv = fig.transFigure.inverted()
+
+    # Per-row content extents (figure fraction, including labels/ticks/legends).
+    tops = [max(_tight_bbox(ax, renderer, inv)[3] for ax in grp) for grp in row_axes_groups]
+    bottoms = [min(_tight_bbox(ax, renderer, inv)[1] for ax in grp) for grp in row_axes_groups]
+
+    # Full content width (letters on the left, legends on the right).
+    all_axes = [ax for grp in row_axes_groups for ax in grp]
+    x_left = min(_tight_bbox(ax, renderer, inv)[0] for ax in all_axes)
+    x_right = max(_tight_bbox(ax, renderer, inv)[2] for ax in all_axes)
+    x_mid = 0.5 * (x_left + x_right)
+
+    for i, title in enumerate(titles):
+        if i == 0:
+            # First row: sit just above the content (the top margin is cropped).
+            y = min(tops[0] + 0.018, 0.995)
+        else:
+            # Center the divider in the whitespace gap between rows.
+            y = 0.5 * (bottoms[i - 1] + tops[i])
+
+        line = Line2D([x_left, x_right], [y, y], transform=fig.transFigure,
+                      color="0.55", lw=0.8, zorder=0)
+        fig.add_artist(line)
+        fig.text(x_mid, y, title, ha="center", va="center", fontsize=fontsize,
+                 zorder=1, bbox=dict(facecolor="white", edgecolor="none", pad=4))
+
+
+# ----------------------------------------------------------------------------
 # Figure
 # ----------------------------------------------------------------------------
 def make_figure(data):
@@ -458,8 +670,8 @@ def make_figure(data):
     gaussian_df, res_df = data["gaussian_df"], data["res_df"]
     seq_df, combined_df = data["seq_df"], data["combined_df"]
 
-    fig = plt.figure(figsize=(10, 15), dpi=150)
-    gs_main = fig.add_gridspec(5, 1, height_ratios=[3, 3, 3, 2, 3], hspace=0.75)
+    fig = plt.figure(figsize=(10, 15.5), dpi=150)
+    gs_main = fig.add_gridspec(5, 1, height_ratios=[3, 3, 3, 2, 3], hspace=1.0)
 
     # ========================================================================
     # ROW 1: Cell Number Scaling
@@ -486,7 +698,7 @@ def make_figure(data):
 
     xs = np.logspace(1, 7, 100)
     ys = np.maximum(I_inf - (xs / N0) ** (-s), 0)
-    ax_a.plot(xs, ys, linestyle=":", color=METHOD_COLOR["Geneformer"], zorder=20)
+    ax_a.plot(xs, ys, linestyle=":", color=METHOD_COLOR["Geneformer"], zorder=20, rasterized=True)
 
     ax_a.axhline(I_inf, linestyle="dashed", color="darkcyan", zorder=10, lw=1.5)
     ax_a.text(data_a["size"].max() / 2, I_inf - 0.5, r"capacity $I_\infty$", ha="right", va="bottom", color="darkcyan", fontsize=9)
@@ -510,9 +722,12 @@ def make_figure(data):
     markers = ["o", "s", "^", "D", "v"]
     marker_map = {m: markers[i] for i, m in enumerate(HUE_ORDER_METRICS) if m != "Caltech101-binary"}
 
-    plot_precomputed_scaling(ax_b, df, sc_param_df, METHOD_COLOR, marker_map, HUE_ORDER_METRICS, SCALING_METHODS)
+    panel_b_r2 = []
+    plot_precomputed_scaling(ax_b, df, sc_param_df, METHOD_COLOR, marker_map, HUE_ORDER_METRICS, SCALING_METHODS,
+                             r2_stats=panel_b_r2, r2_exclude=("PCA",), r2_quality=1)
+    _summarize_r2("Panel b (non-PCA cell-number scaling fit, MI space, quality=1 full datasets)", panel_b_r2)
 
-    xs = np.logspace(-4, 6, 100)
+    xs = np.logspace(-4, 7.5, 100)
     ax_b.plot(xs, xs, color="black", linestyle="--", alpha=0.4, lw=1.5, label=r"$y = x$", zorder=10)
     ax_b.set_xscale("log")
     ax_b.set_yscale("log")
@@ -524,8 +739,10 @@ def make_figure(data):
     leg1 = ax_b.legend(handles=method_handles, loc="upper left", bbox_to_anchor=(1.02, 1.15), title="model")
     metric_handles = [Line2D([0], [0], color="black", marker=marker_map[m], linestyle="None", label=m, ms=4)
                       for m in HUE_ORDER_METRICS if m != "Caltech101-binary"]
-    ax_b.legend(handles=metric_handles, loc="upper left", bbox_to_anchor=(1.02, 0.42), title="metric")
+    leg2 = ax_b.legend(handles=metric_handles, loc="upper left", bbox_to_anchor=(1.02, 0.42), title="metric")
     ax_b.add_artist(leg1)
+    style_legend(leg1)
+    style_legend(leg2)
 
     # ========================================================================
     # ROW 2: Noise Examples
@@ -540,7 +757,7 @@ def make_figure(data):
         max_sub = sub[sub["size"] == sub["size"].max()]
 
         sns.scatterplot(data=max_sub, x="umis_per_cell", y="mi_value", hue="algorithm",
-                        palette=PRETTY_PALETTE, hue_order=HUE_ORDER, ax=ax, legend=ax == axs_c[-1])
+                        palette=PRETTY_PALETTE, hue_order=HUE_ORDER, ax=ax, legend=ax == axs_c[-1], rasterized=True)
 
         for i, alg in enumerate(HUE_ORDER):
             dat = max_sub[max_sub["algorithm"] == alg]
@@ -552,8 +769,8 @@ def make_figure(data):
                 x_fit = np.linspace(dat["umis_per_cell"].min() / 5, dat["umis_per_cell"].max() * 5, 10000)
                 y_fit = result.eval(x=x_fit)
                 y_err = result.eval_uncertainty(x=x_fit, sigma=2)
-                ax.fill_between(x_fit, y_fit + y_err, y_fit - y_err, color=PRETTY_PALETTE[i], alpha=0.2)
-                ax.plot(x_fit, y_fit, color=PRETTY_PALETTE[i], linestyle="--")
+                ax.fill_between(x_fit, y_fit + y_err, y_fit - y_err, color=PRETTY_PALETTE[i], alpha=0.2, rasterized=True)
+                ax.plot(x_fit, y_fit, color=PRETTY_PALETTE[i], linestyle="--", rasterized=True)
 
         ax.set_xscale("log")
         ax.set_ylabel(sig, fontsize=12)
@@ -569,6 +786,7 @@ def make_figure(data):
         for txt in axs_c[-1].get_legend().get_texts():
             if txt.get_text() == "State":
                 txt.set_text("STATE")
+        style_legend(axs_c[-1].get_legend())
 
     # ========================================================================
     # ROW 3: Noise Collapse
@@ -584,11 +802,11 @@ def make_figure(data):
     u_bar, I_max = subset["fitted_u_bar"].values[0], subset["fitted_I_max"].values[0]
 
     data_d = df[(df["size"] == max_cell_number) & (df["algorithm"] == method) & (df["signal"] == metric)]
-    sns.scatterplot(data=data_d, x="umis_per_cell", y="mi_value", color=METHOD_COLOR["Geneformer"], ax=ax_d, legend=False, zorder=3)
+    sns.scatterplot(data=data_d, x="umis_per_cell", y="mi_value", color=METHOD_COLOR["Geneformer"], ax=ax_d, legend=False, zorder=3, rasterized=True)
 
     xs = np.logspace(np.log10(data_d["umis_per_cell"].min() / 2), np.log10(data_d["umis_per_cell"].max() * 2), 100)
     ys = np.maximum(I_max - 0.5 * np.log2((1 + xs / u_bar) / (xs / u_bar + 2 ** (-2 * I_max))), 0)
-    ax_d.plot(xs, ys, linestyle=":", color=METHOD_COLOR["Geneformer"], zorder=20)
+    ax_d.plot(xs, ys, linestyle=":", color=METHOD_COLOR["Geneformer"], zorder=20, rasterized=True)
 
     ax_d.axhline(I_max, linestyle="dashed", color="darkcyan", zorder=10, lw=1.5)
     ax_d.text(data_d["umis_per_cell"].max() / 2, I_max + 0.1, r"capacity $I_\max$", ha="center", va="bottom", color="darkcyan", fontsize=9)
@@ -602,13 +820,18 @@ def make_figure(data):
 
     # Panel e: noise collapse (coloured by metric; STATE adds points here too)
     ax_e = fig.add_subplot(gs_row3[1])
-    plot_precomputed_noise(ax_e, df, sc_param_df_noise, PRETTY_PALETTE_METRICS, HUE_ORDER_METRICS, NOISE_METHODS)
+    panel_e_r2 = []
+    plot_precomputed_noise(ax_e, df, sc_param_df_noise, PRETTY_PALETTE_METRICS, HUE_ORDER_METRICS, NOISE_METHODS,
+                           r2_stats=panel_e_r2)
     if gaussian_df is not None:
-        fit_and_plot_caltech(ax_e, gaussian_df, "Scale", PRETTY_PALETTE_METRICS[4])
-        fit_and_plot_caltech(ax_e, res_df, "Factor", PRETTY_PALETTE_METRICS[4])
-    fit_and_plot_tissue(ax_e, combined_df, "pixel", TISSUE_COLOR)
-    fit_and_plot_tissue(ax_e, combined_df, "gaussian", TISSUE_COLOR)
-    fit_and_plot_sequences(ax_e, seq_df, SEQ_COLOR_COLLAPSE)
+        fit_and_plot_caltech(ax_e, gaussian_df, "Scale", PRETTY_PALETTE_METRICS[4], r2_stats=panel_e_r2)
+        fit_and_plot_caltech(ax_e, res_df, "Factor", PRETTY_PALETTE_METRICS[4], r2_stats=panel_e_r2)
+    fit_and_plot_tissue(ax_e, combined_df, "pixel", TISSUE_COLOR, r2_stats=panel_e_r2)
+    fit_and_plot_tissue(ax_e, combined_df, "gaussian", TISSUE_COLOR, r2_stats=panel_e_r2)
+    fit_and_plot_sequences(ax_e, seq_df, SEQ_COLOR_COLLAPSE, r2_stats=panel_e_r2)
+    # Panel e is well-conditioned (plotted y = I - I_max is a pure offset of I),
+    # so no MI-range gate is applied -- every plotted curve is included.
+    _summarize_r2("Panel e (full noise collapse, incl. PCA + aux modalities)", panel_e_r2, i_range_min=None)
 
     xs = np.logspace(-6, 5.5, 100)
     ax_e.plot(xs, -np.log2((1 + xs) / xs) / 2, color="black", linestyle="--", alpha=0.4, lw=1.5,
@@ -620,7 +843,8 @@ def make_figure(data):
 
     handles, labels = ax_e.get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
-    ax_e.legend(by_label.values(), by_label.keys(), loc="upper left", bbox_to_anchor=(1.0, 1.0), title="metric")
+    leg_e = ax_e.legend(by_label.values(), by_label.keys(), loc="upper left", bbox_to_anchor=(1.0, 1.0), title="metric")
+    style_legend(leg_e)
 
     # ========================================================================
     # ROW 4: Parameter Bars
@@ -658,21 +882,24 @@ def make_figure(data):
     errors = sens_df.pivot(index="metric", columns="method", values="u_bar_error")
     means[bar_methods].plot(kind="bar", yerr=errors[bar_methods], ax=axs_f[0], color=bar_colors,
                             capsize=0, ecolor="grey", rot=0, legend=False)
-    axs_f[0].set_xlabel("")
+    axs_f[0].set_xlabel("Auxiliary MI metric", fontsize=12)
     axs_f[0].set_ylabel(r"sensitivity ($\bar{\eta}$)", fontsize=12)
-    axs_f[0].tick_params(axis="x", rotation=60)
+    axs_f[0].tick_params(axis="x", rotation=0)
+    axs_f[0].set_xticklabels([t.get_text().replace(" MI", "") for t in axs_f[0].get_xticklabels()])
 
     means = noise_df.pivot(index="metric", columns="method", values="fitted_I_max")
     errors = noise_df.pivot(index="metric", columns="method", values="I_max_error")
     means[bar_methods].plot(kind="bar", yerr=errors[bar_methods], ax=axs_f[1], color=bar_colors,
                             capsize=0, ecolor="grey", rot=0)
-    axs_f[1].set_xlabel("")
+    axs_f[1].set_xlabel("Auxiliary MI metric", fontsize=12)
     axs_f[1].set_ylabel(r"capacity ($\mathcal{I}_{\max}$)", fontsize=12)
     leg_f = axs_f[1].legend(title="model", bbox_to_anchor=(1.0, 1), loc="upper left")
     for txt in leg_f.get_texts():
         if txt.get_text() == "State":
             txt.set_text("STATE")
-    axs_f[1].tick_params(axis="x", rotation=60)
+    style_legend(leg_f)
+    axs_f[1].tick_params(axis="x", rotation=0)
+    axs_f[1].set_xticklabels([t.get_text().replace(" MI", "") for t in axs_f[1].get_xticklabels()])
 
     # ========================================================================
     # ROW 5: TissueMNIST and Sequences
@@ -681,7 +908,7 @@ def make_figure(data):
     axs_g = [fig.add_subplot(gs_row5[i]) for i in range(3)]
 
     label_map = {
-        "ova_mi_continuous_Class_0": "Collecting Duct, Connecting Tubule",
+        "ova_mi_continuous_Class_0": "Collecting Duct",
         "ova_mi_continuous_Class_1": "Distal Convoluted Tubule",
         "ova_mi_continuous_Class_2": "Glomerular endothelial cells",
         "ova_mi_continuous_Class_3": "Interstitial endothelial cells",
@@ -692,26 +919,7 @@ def make_figure(data):
         "mi_score": "8-class MI",
     }
 
-    # Panel g1: sequences
-    for idx, model_size in enumerate(sorted(seq_df["model_size"].unique())):
-        data_s = seq_df[seq_df["model_size"] == model_size]
-        x_data = data_s["true/error"]
-        y_data = data_s["mutual_information"]
-        color = SEQ_COLORS[idx % len(SEQ_COLORS)]
-        _, _, result = fit_info_model(x_data, y_data)
-        if result:
-            x_fit = np.logspace(np.log10(x_data.min() / 5), np.log10(5 * x_data.max()), 100000)
-            y_fit = result.eval(x=x_fit)
-            y_err = result.eval_uncertainty(x=x_fit, sigma=2)
-            axs_g[0].plot(x_fit, y_fit, linestyle="--", color=color, alpha=0.5)
-            axs_g[0].fill_between(x_fit, y_fit + y_err, y_fit - y_err, color=color, alpha=0.2)
-        axs_g[0].scatter(x_data, y_data, color=color, s=30, label=f"ESM2-{model_size}")
-    axs_g[0].set_xlabel(r"$\frac{\text{true a.a.}}{\text{corrupted a.a.}}$", fontsize=14)
-    axs_g[0].set_ylabel(r"$I(L; z)$", fontsize=14)
-    axs_g[0].set_xscale("log")
-    axs_g[0].legend(loc="lower right", fontsize=8)
-
-    # Panel g2: pixel downsampling
+    # Panel g: pixel downsampling
     pix = combined_df[combined_df["downsampling_type"] == "pixel"].copy()
     pix["inv_factor"] = 1 / pix["downsampling_level"]
     ova_columns = ["mi_score"] + [c for c in pix.columns if "ova_mi_continuous" in c]
@@ -723,13 +931,14 @@ def make_figure(data):
             x_fit = np.logspace(np.log10(x_data.min() / 5), np.log10(5 * x_data.max()), 100000)
             y_fit = result.eval(x=x_fit)
             y_err = result.eval_uncertainty(x=x_fit, sigma=2)
-            axs_g[1].plot(x_fit, y_fit, linestyle="--", color=PALETTE_TISSUE[i], alpha=0.5)
-            axs_g[1].fill_between(x_fit, y_fit + y_err, y_fit - y_err, color=PALETTE_TISSUE[i], alpha=0.2)
-        axs_g[1].scatter(x_data, y_data, color=PALETTE_TISSUE[i], label=label_map.get(col, col), s=30)
-    axs_g[1].set_xlabel(r"$(\text{downsampling factor})^{-1}$", fontsize=14)
-    axs_g[1].set_xscale("log")
+            axs_g[0].plot(x_fit, y_fit, linestyle="--", color=PALETTE_TISSUE[i], alpha=0.5, rasterized=True)
+            axs_g[0].fill_between(x_fit, y_fit + y_err, y_fit - y_err, color=PALETTE_TISSUE[i], alpha=0.2, rasterized=True)
+        axs_g[0].scatter(x_data, y_data, color=PALETTE_TISSUE[i], label=label_map.get(col, col), s=30, rasterized=True)
+    axs_g[0].set_xlabel(r"$(\text{downsampling factor})^{-1}$", fontsize=14)
+    axs_g[0].set_ylabel("MI (bits)", fontsize=14)
+    axs_g[0].set_xscale("log")
 
-    # Panel g3: gaussian noise
+    # Panel h: gaussian noise
     gauss = combined_df[combined_df["downsampling_type"] == "gaussian"].copy()
     for i, col in enumerate(ova_columns[::-1]):
         mask = ~gauss[col].isna()
@@ -739,23 +948,106 @@ def make_figure(data):
             x_fit = np.logspace(np.log10(x_data.min() / 5), np.log10(5 * x_data.max()), 100000)
             y_fit = result.eval(x=x_fit)
             y_err = result.eval_uncertainty(x=x_fit, sigma=2)
-            axs_g[2].plot(x_fit, y_fit, linestyle="--", color=PALETTE_TISSUE[i], alpha=0.5)
-            axs_g[2].fill_between(x_fit, y_fit + y_err, y_fit - y_err, color=PALETTE_TISSUE[i], alpha=0.2)
-        axs_g[2].scatter(x_data, y_data, color=PALETTE_TISSUE[i], label=label_map.get(col, col), s=30)
-    axs_g[2].set_xlabel(r"$(\text{variance})^{-1}$", fontsize=14)
+            axs_g[1].plot(x_fit, y_fit, linestyle="--", color=PALETTE_TISSUE[i], alpha=0.5, rasterized=True)
+            axs_g[1].fill_between(x_fit, y_fit + y_err, y_fit - y_err, color=PALETTE_TISSUE[i], alpha=0.2, rasterized=True)
+        axs_g[1].scatter(x_data, y_data, color=PALETTE_TISSUE[i], label=label_map.get(col, col), s=30, rasterized=True)
+    axs_g[1].set_xlabel(r"$(\text{variance})^{-1}$", fontsize=14)
+    axs_g[1].set_xscale("log")
+    tissue_handles, tissue_labels = axs_g[1].get_legend_handles_labels()
+
+    # Panel i: ESM2 sequence example
+    for idx, model_size in enumerate(sorted(seq_df["model_size"].unique())):
+        data_s = seq_df[seq_df["model_size"] == model_size]
+        x_data = data_s["true/error"]
+        y_data = data_s["mutual_information"]
+        color = SEQ_COLORS[idx % len(SEQ_COLORS)]
+        _, _, result = fit_info_model(x_data, y_data)
+        if result:
+            x_fit = np.logspace(np.log10(x_data.min() / 5), np.log10(5 * x_data.max()), 100000)
+            y_fit = result.eval(x=x_fit)
+            y_err = result.eval_uncertainty(x=x_fit, sigma=2)
+            axs_g[2].plot(x_fit, y_fit, linestyle="--", color=color, alpha=0.5, rasterized=True)
+            axs_g[2].fill_between(x_fit, y_fit + y_err, y_fit - y_err, color=color, alpha=0.2, rasterized=True)
+        axs_g[2].scatter(x_data, y_data, color=color, s=30, label=f"ESM2-{model_size}", rasterized=True)
+    axs_g[2].set_xlabel(r"$\frac{\text{true a.a.}}{\text{corrupted a.a.}}$", fontsize=14)
+    axs_g[2].set_ylabel(r"$I(L; z)$", fontsize=14)
     axs_g[2].set_xscale("log")
-    axs_g[2].legend(loc="upper left", bbox_to_anchor=(1, 1.05), fontsize=8)
+    # Row-5 legends are positioned in the finalize step (see row-5 layout below),
+    # using the tissue-class handles captured from panel h above.
+    row5_tissue_legend = (tissue_handles, tissue_labels)
 
     # ========================================================================
     # Panel labels
     # ========================================================================
-    for ax, label in zip([ax_a, ax_b, axs_c[0], ax_d, ax_e, axs_f[0], axs_g[0]],
-                         ["a)", "b)", "c)", "d)", "e)", "f)", "g)"]):
-        x_pos = -0.3 if ax != axs_c[0] else -0.62
+    fig.tight_layout()
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    inv = fig.transFigure.inverted()
+
+    # Nudge the panel-f bar charts right so the (aligned) 'f' letter clears their
+    # wide sensitivity / capacity y-axis labels, leaving the letter in place.
+    for ax in axs_f:
+        pos = ax.get_position()
+        ax.set_position([pos.x0 + 0.03, pos.y0, pos.width, pos.height])
+    fig.canvas.draw()
+
+    # Row-5 layout: fill the full width with g & h on the left (g's x0 fixed so
+    # its letter stays aligned with a/c/d/f), the tissue-class legend (which
+    # describes g & h) in the middle, and panel i on the right with its own ESM
+    # legend.  Panel widths are sized dynamically around the measured legend.
+    tissue_handles, tissue_labels = row5_tissue_legend
+    pos0 = axs_g[0].get_position()
+    y0, hh, L, y_top = pos0.y0, pos0.height, pos0.x0, pos0.y1
+    gap_gh, m_hl, m_li = 0.055, 0.05, 0.05   # g|h gap, legend margins
+
+    # Right edge of the row = how far the other rows' content (their legends)
+    # extends, so panel i reaches the same far edge as the rest of the figure.
+    other_axes = [ax_a, ax_b, ax_d, ax_e] + list(axs_c) + list(axs_f)
+    R = max(_tight_bbox(ax, renderer, inv)[2] for ax in other_axes)
+
+    # Measure the legend width (independent of where it ends up).
+    tissue_leg = axs_g[1].legend(tissue_handles, tissue_labels, loc="upper left",
+                                 bbox_to_anchor=(0.0, 0.0), fontsize=8)
+    fig.canvas.draw()
+    lb = tissue_leg.get_window_extent(renderer)
+    wl = inv.transform((lb.x1, 0))[0] - inv.transform((lb.x0, 0))[0]
+
+    pw = (R - L - wl - gap_gh - m_hl - m_li) / 3.0
+    axs_g[0].set_position([L, y0, pw, hh])
+    axs_g[1].set_position([L + pw + gap_gh, y0, pw, hh])
+    axs_g[2].set_position([R - pw, y0, pw, hh])
+
+    # Anchor the tissue legend just right of panel h (figure coordinates).
+    h_x1 = L + 2 * pw + gap_gh
+    tissue_leg.set_bbox_to_anchor((h_x1 + m_hl, y_top), transform=fig.transFigure)
+    style_legend(tissue_leg)
+    esm_leg = axs_g[2].legend(loc="lower right", fontsize=8)
+    style_legend(esm_leg)
+    fig.canvas.draw()
+
+    # Panel letters.  Left-column letters share a common figure-x so they align
+    # (their panels differ in width, so a fixed axes-fraction offset would not).
+    left_col = [(ax_a, "a"), (axs_c[0], "c"), (ax_d, "d"), (axs_f[0], "f"), (axs_g[0], "g")]
+    x_common = min(_tight_bbox(ax, renderer, inv)[0] for ax, _ in left_col) - 0.008
+    for ax, label in left_col:
+        pos = ax.get_position()
+        x_pos = (x_common - pos.x0) / pos.width
+        ax.text(x_pos, 1.05, label, transform=ax.transAxes, fontsize=16, fontweight="bold")
+    # b, e keep a wide left offset; h, i sit over their own y-axis (a fixed
+    # axes-fraction offset would drift them left into the previous panel).
+    for ax, label in [(ax_b, "b"), (ax_e, "e")]:
+        ax.text(-0.3, 1.05, label, transform=ax.transAxes, fontsize=16, fontweight="bold")
+    for ax, label in [(axs_g[1], "h"), (axs_g[2], "i")]:
+        x_pos = -0.03 / ax.get_position().width
         ax.text(x_pos, 1.05, label, transform=ax.transAxes, fontsize=16, fontweight="bold")
 
-    fig.tight_layout()
-    fig.savefig(OUT_PDF, bbox_inches="tight")
+    # Row-title dividers (added after layout so positions are final).
+    row_axes_groups = [[ax_a, ax_b], list(axs_c), [ax_d, ax_e], list(axs_f), list(axs_g)]
+    add_row_titles(fig, row_axes_groups, ROW_TITLES)
+
+    # Rasterized layers (scatter/fit lines/fill) are baked at this dpi in the
+    # otherwise-vector PDF, keeping text/axes vector while shrinking file size.
+    fig.savefig(OUT_PDF, bbox_inches="tight", dpi=300)
     fig.savefig(OUT_PNG, dpi=150, bbox_inches="tight")
     print(f"Saved figure -> {os.path.relpath(OUT_PDF, REPO_ROOT)} and {os.path.relpath(OUT_PNG, REPO_ROOT)}")
 

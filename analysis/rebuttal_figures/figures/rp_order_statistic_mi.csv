@@ -1,0 +1,2 @@
+dataset,signal,n_components,n_hvg,n_cells,seed,mi_continuous_bits,mi_order_statistic_bits,mi_loss_bits
+PBMC,protein_counts,16,750,20000,42,2.550782361841509,1.53477607876873,1.0160062830727792

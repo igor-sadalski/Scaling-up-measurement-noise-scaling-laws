@@ -1,0 +1,14 @@
+2026-07-18 21:33:12 [INFO] device=cuda | torch=2.10.0+cu130 | cuda_available=True
+2026-07-18 21:33:12 [INFO] args: {'dataset': 'tissuemnist', 'output_dir': '/mnt/home/gokulg/scaling/Scaling-up-measurement-noise-scaling-laws/images/pilot/results', 'size': 224, 'epochs': 10, 'lr': 0.001, 'batch_size': 512, 'num_workers': 2, 'k': 100, 'seeds': [0], 'noise_grid': [0.05, 0.1, 0.2, 0.4, 0.8, 1.6], 'ratio_targets': [0.0, 0.25, 1.0, 4.0, 9.0, 16.0], 'subset_train': None, 'subset_test': None, 'no_download': False, 'no_analyze': False}
+2026-07-18 21:33:12 [INFO] loading tissuemnist (size=224) ...
+2026-07-18 21:33:50 [INFO] full split: 165466 train, 47280 test, 8 classes
+2026-07-18 21:33:50 [INFO] per-image tensor shape (C,H,W): (3, 224, 224)
+2026-07-18 21:33:50 [INFO] noise_grid (sigma_meas): [0.05, 0.1, 0.2, 0.4, 0.8, 1.6]
+2026-07-18 21:33:50 [INFO] sigma_meas_mid (geom): 0.2828
+2026-07-18 21:33:50 [INFO] sigma_M_grid: [0.0, 0.1414, 0.2828, 0.5657, 0.8485, 1.1314]  (ratio targets @ mid: [0.0, 0.25, 1.0, 4.0, 9.0, 16.0])
+2026-07-18 21:33:50 [INFO] total sweep cells: 36 (= 1 seeds x 6 noise x 6 sigma_M)
+2026-07-18 21:33:50 [INFO] [seed 0] using 165466 train / 47280 test imgs (n_per_batch=1654.7, k=100)
+2026-07-18 21:33:50 [INFO] === cell 1/36 | seed=0 noise_level=0.0500 sigma_M=0.0000 ratio=0.000 ===
+2026-07-18 21:33:51 [INFO] training: 165466 train imgs, 10 epochs (noise_level=0.0500, sigma_M=0.0000)
+Epoch 1/10 | Loss: 0.9591 | Acc: 64.81%
+Epoch 2/10 | Loss: 0.7704 | Acc: 72.06%

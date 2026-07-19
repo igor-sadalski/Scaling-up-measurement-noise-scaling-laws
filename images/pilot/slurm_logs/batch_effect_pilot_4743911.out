@@ -1,0 +1,284 @@
+2026-07-18 21:42:55 [INFO] device=cuda | torch=2.10.0+cu130 | cuda_available=True
+2026-07-18 21:42:55 [INFO] args: {'dataset': 'tissuemnist', 'output_dir': '/mnt/home/gokulg/scaling/Scaling-up-measurement-noise-scaling-laws/images/pilot/results', 'size': 224, 'epochs': 10, 'lr': 0.001, 'batch_size': 512, 'num_workers': 2, 'k': 100, 'seeds': [0], 'noise_grid': [0.05, 0.1, 0.2, 0.4, 0.8, 1.6], 'ratio_targets': [0.0, 0.25, 1.0, 4.0, 9.0, 16.0], 'subset_train': 1000, 'subset_test': 1000, 'no_download': False, 'no_analyze': False}
+2026-07-18 21:42:55 [INFO] loading tissuemnist (size=224) ...
+2026-07-18 21:43:29 [INFO] full split: 165466 train, 47280 test, 8 classes
+2026-07-18 21:43:29 [INFO] per-image tensor shape (C,H,W): (3, 224, 224)
+2026-07-18 21:43:29 [INFO] noise_grid (sigma_meas): [0.05, 0.1, 0.2, 0.4, 0.8, 1.6]
+2026-07-18 21:43:29 [INFO] sigma_meas_mid (geom): 0.2828
+2026-07-18 21:43:29 [INFO] sigma_M_grid: [0.0, 0.1414, 0.2828, 0.5657, 0.8485, 1.1314]  (ratio targets @ mid: [0.0, 0.25, 1.0, 4.0, 9.0, 16.0])
+2026-07-18 21:43:29 [INFO] total sweep cells: 36 (= 1 seeds x 6 noise x 6 sigma_M)
+2026-07-18 21:43:29 [INFO] [seed 0] using 1000 train / 1000 test imgs (n_per_batch=10.0, k=100)
+2026-07-18 21:43:29 [INFO] === cell 1/36 | seed=0 noise_level=0.0500 sigma_M=0.0000 ratio=0.000 ===
+2026-07-18 21:43:29 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.0500, sigma_M=0.0000)
+Epoch 1/10 | Loss: 1.8901 | Acc: 25.30%
+Epoch 2/10 | Loss: 1.4296 | Acc: 46.20%
+Epoch 3/10 | Loss: 1.2178 | Acc: 58.60%
+Epoch 4/10 | Loss: 1.0118 | Acc: 66.30%
+Epoch 5/10 | Loss: 0.8301 | Acc: 71.00%
+Epoch 6/10 | Loss: 0.6489 | Acc: 77.60%
+Epoch 7/10 | Loss: 0.4647 | Acc: 85.10%
+Epoch 8/10 | Loss: 0.3163 | Acc: 91.50%
+Epoch 9/10 | Loss: 0.1865 | Acc: 96.10%
+Epoch 10/10 | Loss: 0.0999 | Acc: 98.60%
+2026-07-18 21:45:11 [INFO] training done in 102.3s; evaluating MI on 1000 test imgs
+2026-07-18 21:45:17 [INFO] cell result: MI(pred;true) = 0.0594 bits
+2026-07-18 21:45:17 [INFO] === cell 2/36 | seed=0 noise_level=0.0500 sigma_M=0.1414 ratio=8.000 ===
+2026-07-18 21:45:18 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.0500, sigma_M=0.1414)
+Epoch 1/10 | Loss: 1.9234 | Acc: 23.80%
+Epoch 2/10 | Loss: 1.4885 | Acc: 46.40%
+Epoch 3/10 | Loss: 1.2543 | Acc: 58.80%
+Epoch 4/10 | Loss: 1.0468 | Acc: 65.20%
+Epoch 5/10 | Loss: 0.8459 | Acc: 70.80%
+Epoch 6/10 | Loss: 0.6502 | Acc: 78.60%
+Epoch 7/10 | Loss: 0.4715 | Acc: 86.60%
+Epoch 8/10 | Loss: 0.3183 | Acc: 90.60%
+Epoch 9/10 | Loss: 0.2130 | Acc: 94.90%
+Epoch 10/10 | Loss: 0.1208 | Acc: 97.70%
+2026-07-18 21:46:58 [INFO] training done in 100.1s; evaluating MI on 1000 test imgs
+2026-07-18 21:47:04 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 21:47:04 [INFO] === cell 3/36 | seed=0 noise_level=0.0500 sigma_M=0.2828 ratio=32.000 ===
+2026-07-18 21:47:04 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.0500, sigma_M=0.2828)
+Epoch 1/10 | Loss: 1.9626 | Acc: 21.70%
+Epoch 2/10 | Loss: 1.5345 | Acc: 42.80%
+Epoch 3/10 | Loss: 1.3263 | Acc: 55.10%
+Epoch 4/10 | Loss: 1.1466 | Acc: 62.60%
+Epoch 5/10 | Loss: 0.9451 | Acc: 66.60%
+Epoch 6/10 | Loss: 0.7648 | Acc: 74.20%
+Epoch 7/10 | Loss: 0.5688 | Acc: 83.40%
+Epoch 8/10 | Loss: 0.3987 | Acc: 88.00%
+Epoch 9/10 | Loss: 0.2526 | Acc: 93.60%
+Epoch 10/10 | Loss: 0.1419 | Acc: 97.80%
+2026-07-18 21:48:44 [INFO] training done in 99.8s; evaluating MI on 1000 test imgs
+2026-07-18 21:48:50 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 21:48:50 [INFO] === cell 4/36 | seed=0 noise_level=0.0500 sigma_M=0.5657 ratio=128.000 ===
+2026-07-18 21:48:50 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.0500, sigma_M=0.5657)
+Epoch 1/10 | Loss: 1.9110 | Acc: 25.40%
+Epoch 2/10 | Loss: 1.6129 | Acc: 39.40%
+Epoch 3/10 | Loss: 1.4269 | Acc: 48.90%
+Epoch 4/10 | Loss: 1.2541 | Acc: 56.00%
+Epoch 5/10 | Loss: 1.0737 | Acc: 61.10%
+Epoch 6/10 | Loss: 0.8873 | Acc: 70.50%
+Epoch 7/10 | Loss: 0.7218 | Acc: 77.80%
+Epoch 8/10 | Loss: 0.5477 | Acc: 84.10%
+Epoch 9/10 | Loss: 0.3916 | Acc: 88.20%
+Epoch 10/10 | Loss: 0.2624 | Acc: 93.60%
+2026-07-18 21:50:30 [INFO] training done in 99.9s; evaluating MI on 1000 test imgs
+2026-07-18 21:50:37 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 21:50:37 [INFO] === cell 5/36 | seed=0 noise_level=0.0500 sigma_M=0.8485 ratio=288.000 ===
+2026-07-18 21:50:37 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.0500, sigma_M=0.8485)
+Epoch 1/10 | Loss: 1.9690 | Acc: 21.40%
+Epoch 2/10 | Loss: 1.6302 | Acc: 40.30%
+Epoch 3/10 | Loss: 1.4939 | Acc: 45.80%
+Epoch 4/10 | Loss: 1.3190 | Acc: 52.00%
+Epoch 5/10 | Loss: 1.1560 | Acc: 57.10%
+Epoch 6/10 | Loss: 1.0065 | Acc: 64.60%
+Epoch 7/10 | Loss: 0.8596 | Acc: 72.10%
+Epoch 8/10 | Loss: 0.6991 | Acc: 76.40%
+Epoch 9/10 | Loss: 0.5300 | Acc: 82.80%
+Epoch 10/10 | Loss: 0.3862 | Acc: 89.30%
+2026-07-18 21:52:17 [INFO] training done in 100.1s; evaluating MI on 1000 test imgs
+2026-07-18 21:52:23 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 21:52:23 [INFO] === cell 6/36 | seed=0 noise_level=0.0500 sigma_M=1.1314 ratio=512.000 ===
+2026-07-18 21:52:23 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.0500, sigma_M=1.1314)
+Epoch 1/10 | Loss: 1.9699 | Acc: 22.00%
+Epoch 2/10 | Loss: 1.6763 | Acc: 36.90%
+Epoch 3/10 | Loss: 1.5608 | Acc: 44.90%
+Epoch 4/10 | Loss: 1.4012 | Acc: 48.60%
+Epoch 5/10 | Loss: 1.2602 | Acc: 54.30%
+Epoch 6/10 | Loss: 1.1292 | Acc: 59.30%
+Epoch 7/10 | Loss: 0.9886 | Acc: 64.10%
+Epoch 8/10 | Loss: 0.8338 | Acc: 69.10%
+Epoch 9/10 | Loss: 0.6773 | Acc: 77.40%
+Epoch 10/10 | Loss: 0.5379 | Acc: 83.70%
+2026-07-18 21:54:03 [INFO] training done in 100.2s; evaluating MI on 1000 test imgs
+2026-07-18 21:54:10 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 21:54:10 [INFO] === cell 7/36 | seed=0 noise_level=0.1000 sigma_M=0.0000 ratio=0.000 ===
+2026-07-18 21:54:10 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.1000, sigma_M=0.0000)
+Epoch 1/10 | Loss: 1.9373 | Acc: 22.20%
+Epoch 2/10 | Loss: 1.4701 | Acc: 44.70%
+Epoch 3/10 | Loss: 1.2642 | Acc: 57.90%
+Epoch 4/10 | Loss: 1.0628 | Acc: 64.00%
+Epoch 5/10 | Loss: 0.8554 | Acc: 72.20%
+Epoch 6/10 | Loss: 0.6691 | Acc: 79.00%
+Epoch 7/10 | Loss: 0.4961 | Acc: 84.90%
+Epoch 8/10 | Loss: 0.3465 | Acc: 90.70%
+Epoch 9/10 | Loss: 0.2295 | Acc: 94.30%
+Epoch 10/10 | Loss: 0.1336 | Acc: 97.30%
+2026-07-18 21:55:50 [INFO] training done in 100.0s; evaluating MI on 1000 test imgs
+2026-07-18 21:55:56 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 21:55:56 [INFO] === cell 8/36 | seed=0 noise_level=0.1000 sigma_M=0.1414 ratio=2.000 ===
+2026-07-18 21:55:56 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.1000, sigma_M=0.1414)
+Epoch 1/10 | Loss: 1.9424 | Acc: 23.30%
+Epoch 2/10 | Loss: 1.5024 | Acc: 46.80%
+Epoch 3/10 | Loss: 1.2645 | Acc: 56.60%
+Epoch 4/10 | Loss: 1.0541 | Acc: 64.60%
+Epoch 5/10 | Loss: 0.8360 | Acc: 73.30%
+Epoch 6/10 | Loss: 0.6497 | Acc: 79.50%
+Epoch 7/10 | Loss: 0.4881 | Acc: 86.00%
+Epoch 8/10 | Loss: 0.3399 | Acc: 90.90%
+Epoch 9/10 | Loss: 0.2254 | Acc: 94.00%
+Epoch 10/10 | Loss: 0.1309 | Acc: 97.30%
+2026-07-18 21:57:36 [INFO] training done in 100.2s; evaluating MI on 1000 test imgs
+2026-07-18 21:57:43 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 21:57:43 [INFO] === cell 9/36 | seed=0 noise_level=0.1000 sigma_M=0.2828 ratio=8.000 ===
+2026-07-18 21:57:43 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.1000, sigma_M=0.2828)
+Epoch 1/10 | Loss: 1.9262 | Acc: 23.90%
+Epoch 2/10 | Loss: 1.5345 | Acc: 45.20%
+Epoch 3/10 | Loss: 1.3276 | Acc: 55.20%
+Epoch 4/10 | Loss: 1.1091 | Acc: 64.00%
+Epoch 5/10 | Loss: 0.9019 | Acc: 71.40%
+Epoch 6/10 | Loss: 0.6923 | Acc: 79.10%
+Epoch 7/10 | Loss: 0.4911 | Acc: 86.30%
+Epoch 8/10 | Loss: 0.3396 | Acc: 90.70%
+Epoch 9/10 | Loss: 0.2105 | Acc: 95.50%
+Epoch 10/10 | Loss: 0.1153 | Acc: 98.20%
+2026-07-18 21:59:24 [INFO] training done in 100.9s; evaluating MI on 1000 test imgs
+2026-07-18 21:59:30 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 21:59:30 [INFO] === cell 10/36 | seed=0 noise_level=0.1000 sigma_M=0.5657 ratio=32.000 ===
+2026-07-18 21:59:30 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.1000, sigma_M=0.5657)
+Epoch 1/10 | Loss: 1.9525 | Acc: 22.20%
+Epoch 2/10 | Loss: 1.5977 | Acc: 38.90%
+Epoch 3/10 | Loss: 1.4228 | Acc: 51.80%
+Epoch 4/10 | Loss: 1.2132 | Acc: 59.80%
+Epoch 5/10 | Loss: 1.0226 | Acc: 64.00%
+Epoch 6/10 | Loss: 0.8206 | Acc: 74.90%
+Epoch 7/10 | Loss: 0.6276 | Acc: 83.10%
+Epoch 8/10 | Loss: 0.4329 | Acc: 89.90%
+Epoch 9/10 | Loss: 0.2757 | Acc: 93.20%
+Epoch 10/10 | Loss: 0.1669 | Acc: 96.70%
+2026-07-18 22:01:11 [INFO] training done in 100.4s; evaluating MI on 1000 test imgs
+2026-07-18 22:01:17 [INFO] cell result: MI(pred;true) = 0.0208 bits
+2026-07-18 22:01:17 [INFO] === cell 11/36 | seed=0 noise_level=0.1000 sigma_M=0.8485 ratio=72.000 ===
+2026-07-18 22:01:17 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.1000, sigma_M=0.8485)
+Epoch 1/10 | Loss: 1.9476 | Acc: 21.60%
+Epoch 2/10 | Loss: 1.6412 | Acc: 39.20%
+Epoch 3/10 | Loss: 1.4628 | Acc: 50.30%
+Epoch 4/10 | Loss: 1.2685 | Acc: 54.00%
+Epoch 5/10 | Loss: 1.0896 | Acc: 62.00%
+Epoch 6/10 | Loss: 0.8957 | Acc: 71.40%
+Epoch 7/10 | Loss: 0.7128 | Acc: 78.60%
+Epoch 8/10 | Loss: 0.5232 | Acc: 84.20%
+Epoch 9/10 | Loss: 0.3625 | Acc: 90.50%
+Epoch 10/10 | Loss: 0.2143 | Acc: 95.70%
+2026-07-18 22:02:58 [INFO] training done in 100.9s; evaluating MI on 1000 test imgs
+2026-07-18 22:03:04 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 22:03:04 [INFO] === cell 12/36 | seed=0 noise_level=0.1000 sigma_M=1.1314 ratio=128.000 ===
+2026-07-18 22:03:04 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.1000, sigma_M=1.1314)
+Epoch 1/10 | Loss: 1.9513 | Acc: 23.60%
+Epoch 2/10 | Loss: 1.6548 | Acc: 38.60%
+Epoch 3/10 | Loss: 1.4921 | Acc: 47.30%
+Epoch 4/10 | Loss: 1.3459 | Acc: 50.40%
+Epoch 5/10 | Loss: 1.1937 | Acc: 57.00%
+Epoch 6/10 | Loss: 1.0289 | Acc: 65.80%
+Epoch 7/10 | Loss: 0.8617 | Acc: 71.00%
+Epoch 8/10 | Loss: 0.6690 | Acc: 78.20%
+Epoch 9/10 | Loss: 0.4989 | Acc: 85.30%
+Epoch 10/10 | Loss: 0.3486 | Acc: 89.90%
+2026-07-18 22:04:45 [INFO] training done in 100.8s; evaluating MI on 1000 test imgs
+2026-07-18 22:04:51 [INFO] cell result: MI(pred;true) = 0.0530 bits
+2026-07-18 22:04:51 [INFO] === cell 13/36 | seed=0 noise_level=0.2000 sigma_M=0.0000 ratio=0.000 ===
+2026-07-18 22:04:51 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.2000, sigma_M=0.0000)
+Epoch 1/10 | Loss: 1.9198 | Acc: 25.70%
+Epoch 2/10 | Loss: 1.5015 | Acc: 44.80%
+Epoch 3/10 | Loss: 1.3119 | Acc: 55.60%
+Epoch 4/10 | Loss: 1.1083 | Acc: 63.40%
+Epoch 5/10 | Loss: 0.9028 | Acc: 69.10%
+Epoch 6/10 | Loss: 0.6969 | Acc: 78.30%
+Epoch 7/10 | Loss: 0.5294 | Acc: 84.10%
+Epoch 8/10 | Loss: 0.3745 | Acc: 88.60%
+Epoch 9/10 | Loss: 0.2588 | Acc: 93.60%
+Epoch 10/10 | Loss: 0.1687 | Acc: 95.90%
+2026-07-18 22:06:31 [INFO] training done in 99.9s; evaluating MI on 1000 test imgs
+2026-07-18 22:06:38 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 22:06:38 [INFO] === cell 14/36 | seed=0 noise_level=0.2000 sigma_M=0.1414 ratio=0.500 ===
+2026-07-18 22:06:38 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.2000, sigma_M=0.1414)
+Epoch 1/10 | Loss: 1.9084 | Acc: 24.90%
+Epoch 2/10 | Loss: 1.5243 | Acc: 42.00%
+Epoch 3/10 | Loss: 1.2963 | Acc: 57.60%
+Epoch 4/10 | Loss: 1.1120 | Acc: 65.10%
+Epoch 5/10 | Loss: 0.8742 | Acc: 71.10%
+Epoch 6/10 | Loss: 0.6771 | Acc: 79.50%
+Epoch 7/10 | Loss: 0.4755 | Acc: 87.10%
+Epoch 8/10 | Loss: 0.3242 | Acc: 90.90%
+Epoch 9/10 | Loss: 0.1921 | Acc: 95.40%
+Epoch 10/10 | Loss: 0.1037 | Acc: 98.40%
+2026-07-18 22:08:18 [INFO] training done in 100.4s; evaluating MI on 1000 test imgs
+2026-07-18 22:08:24 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 22:08:24 [INFO] === cell 15/36 | seed=0 noise_level=0.2000 sigma_M=0.2828 ratio=2.000 ===
+2026-07-18 22:08:24 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.2000, sigma_M=0.2828)
+Epoch 1/10 | Loss: 1.9267 | Acc: 23.30%
+Epoch 2/10 | Loss: 1.5590 | Acc: 41.40%
+Epoch 3/10 | Loss: 1.3291 | Acc: 55.90%
+Epoch 4/10 | Loss: 1.1367 | Acc: 64.20%
+Epoch 5/10 | Loss: 0.9085 | Acc: 69.90%
+Epoch 6/10 | Loss: 0.6840 | Acc: 79.10%
+Epoch 7/10 | Loss: 0.4918 | Acc: 87.00%
+Epoch 8/10 | Loss: 0.3257 | Acc: 91.30%
+Epoch 9/10 | Loss: 0.2008 | Acc: 94.90%
+Epoch 10/10 | Loss: 0.1123 | Acc: 97.90%
+2026-07-18 22:10:05 [INFO] training done in 100.6s; evaluating MI on 1000 test imgs
+2026-07-18 22:10:11 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 22:10:11 [INFO] === cell 16/36 | seed=0 noise_level=0.2000 sigma_M=0.5657 ratio=8.000 ===
+2026-07-18 22:10:12 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.2000, sigma_M=0.5657)
+Epoch 1/10 | Loss: 1.9684 | Acc: 20.50%
+Epoch 2/10 | Loss: 1.6002 | Acc: 43.60%
+Epoch 3/10 | Loss: 1.4013 | Acc: 50.40%
+Epoch 4/10 | Loss: 1.1901 | Acc: 60.60%
+Epoch 5/10 | Loss: 0.9833 | Acc: 68.80%
+Epoch 6/10 | Loss: 0.7621 | Acc: 79.20%
+Epoch 7/10 | Loss: 0.5682 | Acc: 86.40%
+Epoch 8/10 | Loss: 0.3721 | Acc: 91.30%
+Epoch 9/10 | Loss: 0.2331 | Acc: 95.90%
+Epoch 10/10 | Loss: 0.1342 | Acc: 98.00%
+2026-07-18 22:11:52 [INFO] training done in 100.2s; evaluating MI on 1000 test imgs
+2026-07-18 22:11:58 [INFO] cell result: MI(pred;true) = 0.0122 bits
+2026-07-18 22:11:58 [INFO] === cell 17/36 | seed=0 noise_level=0.2000 sigma_M=0.8485 ratio=18.000 ===
+2026-07-18 22:11:58 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.2000, sigma_M=0.8485)
+Epoch 1/10 | Loss: 1.9404 | Acc: 22.70%
+Epoch 2/10 | Loss: 1.6214 | Acc: 40.10%
+Epoch 3/10 | Loss: 1.4586 | Acc: 48.30%
+Epoch 4/10 | Loss: 1.2395 | Acc: 58.20%
+Epoch 5/10 | Loss: 1.0209 | Acc: 64.90%
+Epoch 6/10 | Loss: 0.8049 | Acc: 75.00%
+Epoch 7/10 | Loss: 0.5876 | Acc: 84.70%
+Epoch 8/10 | Loss: 0.3888 | Acc: 91.30%
+Epoch 9/10 | Loss: 0.2390 | Acc: 95.00%
+Epoch 10/10 | Loss: 0.1193 | Acc: 98.60%
+2026-07-18 22:13:38 [INFO] training done in 99.4s; evaluating MI on 1000 test imgs
+2026-07-18 22:13:44 [INFO] cell result: MI(pred;true) = 0.0084 bits
+2026-07-18 22:13:44 [INFO] === cell 18/36 | seed=0 noise_level=0.2000 sigma_M=1.1314 ratio=32.000 ===
+2026-07-18 22:13:44 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.2000, sigma_M=1.1314)
+Epoch 1/10 | Loss: 1.9423 | Acc: 24.00%
+Epoch 2/10 | Loss: 1.6402 | Acc: 38.90%
+Epoch 3/10 | Loss: 1.4791 | Acc: 50.30%
+Epoch 4/10 | Loss: 1.2804 | Acc: 54.90%
+Epoch 5/10 | Loss: 1.0745 | Acc: 62.50%
+Epoch 6/10 | Loss: 0.8813 | Acc: 71.80%
+Epoch 7/10 | Loss: 0.6649 | Acc: 80.40%
+Epoch 8/10 | Loss: 0.4787 | Acc: 86.90%
+Epoch 9/10 | Loss: 0.3089 | Acc: 92.10%
+Epoch 10/10 | Loss: 0.1877 | Acc: 96.70%
+2026-07-18 22:15:24 [INFO] training done in 100.5s; evaluating MI on 1000 test imgs
+2026-07-18 22:15:31 [INFO] cell result: MI(pred;true) = 0.0532 bits
+2026-07-18 22:15:31 [INFO] === cell 19/36 | seed=0 noise_level=0.4000 sigma_M=0.0000 ratio=0.000 ===
+2026-07-18 22:15:31 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.4000, sigma_M=0.0000)
+Epoch 1/10 | Loss: 1.9423 | Acc: 24.40%
+Epoch 2/10 | Loss: 1.5400 | Acc: 40.70%
+Epoch 3/10 | Loss: 1.3366 | Acc: 55.30%
+Epoch 4/10 | Loss: 1.1211 | Acc: 62.50%
+Epoch 5/10 | Loss: 0.9035 | Acc: 69.30%
+Epoch 6/10 | Loss: 0.7112 | Acc: 79.20%
+Epoch 7/10 | Loss: 0.5231 | Acc: 86.30%
+Epoch 8/10 | Loss: 0.3557 | Acc: 90.20%
+Epoch 9/10 | Loss: 0.2378 | Acc: 94.90%
+Epoch 10/10 | Loss: 0.1414 | Acc: 97.80%
+2026-07-18 22:17:11 [INFO] training done in 100.3s; evaluating MI on 1000 test imgs
+2026-07-18 22:17:18 [INFO] cell result: MI(pred;true) = 0.0000 bits
+2026-07-18 22:17:18 [INFO] === cell 20/36 | seed=0 noise_level=0.4000 sigma_M=0.1414 ratio=0.125 ===
+2026-07-18 22:17:18 [INFO] training: 1000 train imgs, 10 epochs (noise_level=0.4000, sigma_M=0.1414)
+Epoch 1/10 | Loss: 1.9404 | Acc: 24.50%
+Epoch 2/10 | Loss: 1.5616 | Acc: 41.30%
+Epoch 3/10 | Loss: 1.3592 | Acc: 53.20%
+Epoch 4/10 | Loss: 1.1317 | Acc: 63.20%
+Epoch 5/10 | Loss: 0.8959 | Acc: 71.80%
+Epoch 6/10 | Loss: 0.6752 | Acc: 81.30%

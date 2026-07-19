@@ -27,6 +27,7 @@ nohup.out
 Geneformer/**/*.pkl
 Geneformer/**/*.bin
 Geneformer/**/*.json
+.claude/
 
 # ── Large binaries that should never be committed ──────────────────────
 # Model weights / serialized tensors
