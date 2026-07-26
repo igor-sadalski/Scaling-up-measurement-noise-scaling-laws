@@ -76,7 +76,7 @@ Key flags: `--noise-grid`, `--ratio-targets`, `--k`, `--seeds`, `--epochs`,
 ## Outputs (`results/`)
 
 - `results.csv` — `seed, noise_level, eta, sigma_meas_sq, sigma_M, sigma_M_sq_ratio,
-  sigma_M_sq, n_per_batch, k, MI, MI_std_if_estimator_provides_it` (checkpointed each cell).
+  sigma_M_sq, n_per_batch, k, MI, test_acc, MI_std_if_estimator_provides_it` (checkpointed each cell).
 - `fig1_raw_curves.png` — MI vs $\eta$ per $\sigma_M$; batch curves shift rightward.
 - `fig2_collapse.png` — MI vs $\eta_{\mathrm{eff}}^{\mathrm{theory}}$; should overlay baseline.
 - `fig3_empirical_map.png` — $\eta/\eta_{\mathrm{eff}}^{\mathrm{fit}}$ vs
@@ -84,6 +84,22 @@ Key flags: `--noise-grid`, `--ratio-targets`, `--k`, `--seeds`, `--epochs`,
   monotone interpolation), with a line fit vs the theory line $1+x$.
 - `run_meta.json`, `summary.json` — collapse-residual MSE per $\sigma_M$, fig3
   slope/intercept/$R^2$, and $n$, $k$, dataset, classifier details.
+
+## BatchNorm gotcha (why MI was ~0 everywhere)
+
+MobileNetV3 has BatchNorm. Under aggressive fine-tuning the BN **running** mean/var lag the
+fast-shifting activation distribution, so `model.eval()` (which uses running stats) can
+collapse to near-random predictions **even when training accuracy is ~96%** — which silently
+drove the estimated MI to ~0 bits for every cell. Diagnosis on one cell (size 224, 10k, 10
+epochs, σ_M=0, noise 0.05): 96.8% train acc, but `eval()` test acc **0.10** / midd **0.03**,
+while `train()`-mode BN gave test acc **0.54** / midd **0.65**. The estimator was never the
+problem; `ksg.midd` is exact.
+
+Fix: `recalibrate_bn()` resets the BN running stats and re-accumulates them with the final
+weights over the training data (one no-grad pass, `momentum=None` cumulative average) right
+before eval. After recalibration the same cell recovers to test acc **0.56** / midd **0.68**.
+Controlled by `--bn-recalib-batches` (default 100; `0` = full pass over train). Per-cell
+`test_acc` is now logged and stored in `results.csv` so any residual collapse is visible.
 
 ## Notes / deviations
 

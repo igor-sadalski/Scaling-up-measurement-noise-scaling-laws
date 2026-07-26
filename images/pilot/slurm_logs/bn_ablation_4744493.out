@@ -1,0 +1,154 @@
+2026-07-19 19:27:24 [INFO] device=cuda | cells=[(0.05, 1.131), (0.1, 1.131)] | modes=['shift', 'shift_gn', 'iid'] | seeds=[0, 1]
+2026-07-19 19:27:30 [INFO] mode=shift seed=0 cell(sigma_meas=0.050,sigma_M=1.131) -> noise=0.0500 shift=1.1310, 10 epochs
+Epoch 1/10 | Loss: 1.9204 | Acc: 28.22%
+Epoch 2/10 | Loss: 1.6810 | Acc: 36.22%
+Epoch 3/10 | Loss: 1.5396 | Acc: 42.00%
+Epoch 4/10 | Loss: 1.4101 | Acc: 46.46%
+Epoch 5/10 | Loss: 1.2874 | Acc: 51.44%
+Epoch 6/10 | Loss: 1.1538 | Acc: 56.16%
+Epoch 7/10 | Loss: 1.0257 | Acc: 61.20%
+Epoch 8/10 | Loss: 0.9130 | Acc: 65.64%
+Epoch 9/10 | Loss: 0.7977 | Acc: 70.06%
+Epoch 10/10 | Loss: 0.7085 | Acc: 74.07%
+2026-07-19 19:27:55 [INFO]   -> MI=0.1966 acc=0.362 (25.1s)
+2026-07-19 19:27:55 [INFO] mode=shift seed=1 cell(sigma_meas=0.050,sigma_M=1.131) -> noise=0.0500 shift=1.1310, 10 epochs
+Epoch 1/10 | Loss: 1.9014 | Acc: 29.01%
+Epoch 2/10 | Loss: 1.6794 | Acc: 35.74%
+Epoch 3/10 | Loss: 1.5408 | Acc: 41.66%
+Epoch 4/10 | Loss: 1.4128 | Acc: 46.67%
+Epoch 5/10 | Loss: 1.2903 | Acc: 51.96%
+Epoch 6/10 | Loss: 1.1798 | Acc: 55.48%
+Epoch 7/10 | Loss: 1.0269 | Acc: 62.02%
+Epoch 8/10 | Loss: 0.9014 | Acc: 66.62%
+Epoch 9/10 | Loss: 0.7878 | Acc: 70.93%
+Epoch 10/10 | Loss: 0.6852 | Acc: 74.21%
+2026-07-19 19:28:17 [INFO]   -> MI=0.1838 acc=0.365 (22.1s)
+2026-07-19 19:28:17 [INFO] mode=shift_gn seed=0 cell(sigma_meas=0.050,sigma_M=1.131) -> noise=0.0500 shift=1.1310, 10 epochs
+Epoch 1/10 | Loss: 1.9377 | Acc: 27.84%
+Epoch 2/10 | Loss: 1.8398 | Acc: 30.49%
+Epoch 3/10 | Loss: 1.8218 | Acc: 31.33%
+Epoch 4/10 | Loss: 1.8225 | Acc: 30.86%
+Epoch 5/10 | Loss: 1.8231 | Acc: 31.47%
+Epoch 6/10 | Loss: 1.8217 | Acc: 30.84%
+Epoch 7/10 | Loss: 1.8161 | Acc: 31.49%
+Epoch 8/10 | Loss: 1.8090 | Acc: 30.96%
+Epoch 9/10 | Loss: 1.8103 | Acc: 31.32%
+Epoch 10/10 | Loss: 1.7784 | Acc: 31.84%
+2026-07-19 19:28:37 [INFO]   -> MI=0.0310 acc=0.333 (19.6s)
+2026-07-19 19:28:37 [INFO] mode=shift_gn seed=1 cell(sigma_meas=0.050,sigma_M=1.131) -> noise=0.0500 shift=1.1310, 10 epochs
+Epoch 1/10 | Loss: 1.9594 | Acc: 27.43%
+Epoch 2/10 | Loss: 1.8216 | Acc: 31.35%
+Epoch 3/10 | Loss: 1.8071 | Acc: 30.96%
+Epoch 4/10 | Loss: 1.8065 | Acc: 31.59%
+Epoch 5/10 | Loss: 1.8015 | Acc: 31.98%
+Epoch 6/10 | Loss: 1.8029 | Acc: 31.34%
+Epoch 7/10 | Loss: 1.7997 | Acc: 32.03%
+Epoch 8/10 | Loss: 1.7958 | Acc: 31.66%
+Epoch 9/10 | Loss: 1.7961 | Acc: 32.32%
+Epoch 10/10 | Loss: 1.7894 | Acc: 32.01%
+2026-07-19 19:28:56 [INFO]   -> MI=0.0003 acc=0.323 (19.8s)
+2026-07-19 19:28:56 [INFO] mode=iid seed=0 cell(sigma_meas=0.050,sigma_M=1.131) -> noise=1.1321 shift=0.0000, 10 epochs
+Epoch 1/10 | Loss: 1.9604 | Acc: 26.45%
+Epoch 2/10 | Loss: 1.6041 | Acc: 40.06%
+Epoch 3/10 | Loss: 1.3077 | Acc: 53.18%
+Epoch 4/10 | Loss: 0.9648 | Acc: 66.99%
+Epoch 5/10 | Loss: 0.6478 | Acc: 79.85%
+Epoch 6/10 | Loss: 0.4184 | Acc: 88.33%
+Epoch 7/10 | Loss: 0.2851 | Acc: 91.88%
+Epoch 8/10 | Loss: 0.2034 | Acc: 94.38%
+Epoch 9/10 | Loss: 0.1606 | Acc: 95.39%
+Epoch 10/10 | Loss: 0.1512 | Acc: 95.63%
+2026-07-19 19:29:18 [INFO]   -> MI=0.0304 acc=0.244 (21.7s)
+2026-07-19 19:29:18 [INFO] mode=iid seed=1 cell(sigma_meas=0.050,sigma_M=1.131) -> noise=1.1321 shift=0.0000, 10 epochs
+Epoch 1/10 | Loss: 1.9643 | Acc: 26.36%
+Epoch 2/10 | Loss: 1.6018 | Acc: 39.76%
+Epoch 3/10 | Loss: 1.3043 | Acc: 52.50%
+Epoch 4/10 | Loss: 0.9692 | Acc: 67.17%
+Epoch 5/10 | Loss: 0.6543 | Acc: 80.44%
+Epoch 6/10 | Loss: 0.4317 | Acc: 87.95%
+Epoch 7/10 | Loss: 0.3000 | Acc: 91.78%
+Epoch 8/10 | Loss: 0.2253 | Acc: 93.39%
+Epoch 9/10 | Loss: 0.1821 | Acc: 94.77%
+Epoch 10/10 | Loss: 0.1632 | Acc: 95.38%
+2026-07-19 19:29:40 [INFO]   -> MI=0.0300 acc=0.252 (21.7s)
+2026-07-19 19:29:40 [INFO] mode=shift seed=0 cell(sigma_meas=0.100,sigma_M=1.131) -> noise=0.1000 shift=1.1310, 10 epochs
+Epoch 1/10 | Loss: 1.9223 | Acc: 27.92%
+Epoch 2/10 | Loss: 1.6735 | Acc: 37.63%
+Epoch 3/10 | Loss: 1.5169 | Acc: 43.76%
+Epoch 4/10 | Loss: 1.3701 | Acc: 48.55%
+Epoch 5/10 | Loss: 1.2122 | Acc: 54.64%
+Epoch 6/10 | Loss: 1.0619 | Acc: 60.46%
+Epoch 7/10 | Loss: 0.9152 | Acc: 66.43%
+Epoch 8/10 | Loss: 0.7898 | Acc: 71.31%
+Epoch 9/10 | Loss: 0.6853 | Acc: 75.69%
+Epoch 10/10 | Loss: 0.5903 | Acc: 78.45%
+2026-07-19 19:30:02 [INFO]   -> MI=0.1765 acc=0.353 (22.2s)
+2026-07-19 19:30:02 [INFO] mode=shift seed=1 cell(sigma_meas=0.100,sigma_M=1.131) -> noise=0.1000 shift=1.1310, 10 epochs
+Epoch 1/10 | Loss: 1.9324 | Acc: 27.72%
+Epoch 2/10 | Loss: 1.6878 | Acc: 36.43%
+Epoch 3/10 | Loss: 1.5286 | Acc: 41.94%
+Epoch 4/10 | Loss: 1.3783 | Acc: 48.79%
+Epoch 5/10 | Loss: 1.2262 | Acc: 54.36%
+Epoch 6/10 | Loss: 1.0699 | Acc: 60.67%
+Epoch 7/10 | Loss: 0.9174 | Acc: 66.53%
+Epoch 8/10 | Loss: 0.7592 | Acc: 73.41%
+Epoch 9/10 | Loss: 0.6656 | Acc: 76.14%
+Epoch 10/10 | Loss: 0.5656 | Acc: 80.18%
+2026-07-19 19:30:24 [INFO]   -> MI=0.1359 acc=0.328 (22.2s)
+2026-07-19 19:30:24 [INFO] mode=shift_gn seed=0 cell(sigma_meas=0.100,sigma_M=1.131) -> noise=0.1000 shift=1.1310, 10 epochs
+Epoch 1/10 | Loss: 1.9615 | Acc: 26.58%
+Epoch 2/10 | Loss: 1.8269 | Acc: 30.83%
+Epoch 3/10 | Loss: 1.8223 | Acc: 30.77%
+Epoch 4/10 | Loss: 1.8213 | Acc: 30.92%
+Epoch 5/10 | Loss: 1.8195 | Acc: 31.54%
+Epoch 6/10 | Loss: 1.8095 | Acc: 31.48%
+Epoch 7/10 | Loss: 1.8031 | Acc: 31.46%
+Epoch 8/10 | Loss: 1.7729 | Acc: 31.75%
+Epoch 9/10 | Loss: 1.7421 | Acc: 32.99%
+Epoch 10/10 | Loss: 1.7173 | Acc: 33.93%
+2026-07-19 19:30:44 [INFO]   -> MI=0.0995 acc=0.323 (19.6s)
+2026-07-19 19:30:44 [INFO] mode=shift_gn seed=1 cell(sigma_meas=0.100,sigma_M=1.131) -> noise=0.1000 shift=1.1310, 10 epochs
+Epoch 1/10 | Loss: 1.9866 | Acc: 26.92%
+Epoch 2/10 | Loss: 1.8187 | Acc: 30.89%
+Epoch 3/10 | Loss: 1.8094 | Acc: 31.99%
+Epoch 4/10 | Loss: 1.8075 | Acc: 31.58%
+Epoch 5/10 | Loss: 1.8047 | Acc: 31.89%
+Epoch 6/10 | Loss: 1.8012 | Acc: 31.87%
+Epoch 7/10 | Loss: 1.7987 | Acc: 31.50%
+Epoch 8/10 | Loss: 1.7959 | Acc: 30.99%
+Epoch 9/10 | Loss: 1.7898 | Acc: 31.61%
+Epoch 10/10 | Loss: 1.7669 | Acc: 31.99%
+2026-07-19 19:31:04 [INFO]   -> MI=0.0260 acc=0.334 (19.6s)
+2026-07-19 19:31:04 [INFO] mode=iid seed=0 cell(sigma_meas=0.100,sigma_M=1.131) -> noise=1.1354 shift=0.0000, 10 epochs
+Epoch 1/10 | Loss: 1.9628 | Acc: 26.34%
+Epoch 2/10 | Loss: 1.6116 | Acc: 39.36%
+Epoch 3/10 | Loss: 1.3095 | Acc: 53.02%
+Epoch 4/10 | Loss: 0.9696 | Acc: 66.39%
+Epoch 5/10 | Loss: 0.6504 | Acc: 79.76%
+Epoch 6/10 | Loss: 0.4010 | Acc: 88.96%
+Epoch 7/10 | Loss: 0.2887 | Acc: 91.54%
+Epoch 8/10 | Loss: 0.2118 | Acc: 93.87%
+Epoch 9/10 | Loss: 0.1807 | Acc: 94.75%
+Epoch 10/10 | Loss: 0.1567 | Acc: 95.47%
+2026-07-19 19:31:25 [INFO]   -> MI=0.0333 acc=0.250 (21.7s)
+2026-07-19 19:31:25 [INFO] mode=iid seed=1 cell(sigma_meas=0.100,sigma_M=1.131) -> noise=1.1354 shift=0.0000, 10 epochs
+Epoch 1/10 | Loss: 1.9633 | Acc: 26.73%
+Epoch 2/10 | Loss: 1.6167 | Acc: 39.60%
+Epoch 3/10 | Loss: 1.3279 | Acc: 51.99%
+Epoch 4/10 | Loss: 0.9962 | Acc: 66.91%
+Epoch 5/10 | Loss: 0.6536 | Acc: 80.21%
+Epoch 6/10 | Loss: 0.3919 | Acc: 89.03%
+Epoch 7/10 | Loss: 0.2621 | Acc: 93.19%
+Epoch 8/10 | Loss: 0.1995 | Acc: 94.40%
+Epoch 9/10 | Loss: 0.1679 | Acc: 95.43%
+Epoch 10/10 | Loss: 0.1582 | Acc: 95.26%
+2026-07-19 19:31:47 [INFO]   -> MI=0.0342 acc=0.266 (21.7s)
+2026-07-19 19:31:47 [INFO] wrote /mnt/home/gokulg/scaling/Scaling-up-measurement-noise-scaling-laws/images/pilot/results/bn_ablation.csv (12 rows)
+ sigma_meas  sigma_M     mode       MI     acc  n
+       0.05    1.131      iid 0.030169 0.24760  2
+       0.05    1.131    shift 0.190209 0.36380  2
+       0.05    1.131 shift_gn 0.015681 0.32800  2
+       0.10    1.131      iid 0.033765 0.25835  2
+       0.10    1.131    shift 0.156211 0.34040  2
+       0.10    1.131 shift_gn 0.062723 0.32880  2
+2026-07-19 19:31:47 [INFO] interpretation: shift >> iid confirms A!=B; if shift_gn drops toward iid, batch-level BatchNorm is removing the coherent shift.

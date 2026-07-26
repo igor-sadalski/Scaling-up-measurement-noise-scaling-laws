@@ -28,6 +28,8 @@ NPZ_PATH = os.path.expanduser("~/.medmnist/tissuemnist_224.npz")
 FIGDIR = os.path.join(HERE, "figures"); os.makedirs(FIGDIR, exist_ok=True)
 OUT_PNG = os.path.join(FIGDIR, "image_resolution_parameterization.png")
 OUT_PDF = os.path.join(FIGDIR, "image_resolution_parameterization.pdf")
+OUT_A_PNG = os.path.join(FIGDIR, "image_resolution_vs_emp_snr.png")
+OUT_A_PDF = os.path.join(FIGDIR, "image_resolution_vs_emp_snr.pdf")
 SNR_CSV = os.path.join(HERE, "final_results", "image_resolution_snr.csv")
 
 N_SAMPLE, IMG_SIZE, SEED = 4000, 224, 0
@@ -150,7 +152,21 @@ def main():
 
     fig.tight_layout()
     fig.savefig(OUT_PNG, dpi=150, bbox_inches="tight"); fig.savefig(OUT_PDF, bbox_inches="tight")
-    print(f"\nSaved -> {os.path.relpath(SNR_CSV, REPO_ROOT)}, {os.path.relpath(OUT_PNG, REPO_ROOT)}")
+
+    # standalone panel a (no panel label), empirical SNR vs 1/f
+    figA, axA1 = plt.subplots(1, 1, figsize=(5.5, 4.2), dpi=150)
+    axA1.scatter(inv_f, eta, color=c6[2], s=40, zorder=3, label="measured")
+    axA1.plot(xs, cprop * xs, "--", color="grey", alpha=0.8,
+              label=fr"$\eta_{{\rm emp}}\propto 1/f$  ($R^2={r2:.3f}$)")
+    axA1.set_xscale("log"); axA1.set_yscale("log")
+    axA1.set_xlabel(r"$1/f$  (inverse area downsampling factor)", fontsize=12)
+    axA1.set_ylabel(r"$\eta_{\rm emp} = \mathrm{Var}(x)\,/\,\mathbb{E}[(x-x')^2]$", fontsize=12)
+    axA1.legend(fontsize=9, loc="upper left")
+    figA.tight_layout()
+    figA.savefig(OUT_A_PNG, dpi=150, bbox_inches="tight"); figA.savefig(OUT_A_PDF, bbox_inches="tight")
+
+    print(f"\nSaved -> {os.path.relpath(SNR_CSV, REPO_ROOT)}, {os.path.relpath(OUT_PNG, REPO_ROOT)}, "
+          f"{os.path.relpath(OUT_A_PNG, REPO_ROOT)}")
 
 
 if __name__ == "__main__":

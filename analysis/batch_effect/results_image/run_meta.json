@@ -1,0 +1,44 @@
+{
+  "dataset": "tissuemnist",
+  "num_classes": 8,
+  "classifier": "mobilenet_v3_small (IMAGENET1K_V1), final Linear -> num_classes",
+  "norm": "gn",
+  "optimizer": "Adam(lr=0.001), CrossEntropyLoss",
+  "epochs": 10,
+  "size": 64,
+  "img_shape": [
+    3,
+    64,
+    64
+  ],
+  "k": 100,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "noise_grid": [
+    0.05,
+    0.1,
+    0.2,
+    0.4,
+    0.8,
+    1.6
+  ],
+  "sigma_M_grid": [
+    0.0,
+    0.14142135623730953,
+    0.28284271247461906,
+    0.5656854249492381
+  ],
+  "sigma_meas_mid": 0.28284271247461906,
+  "ratio_targets": [
+    0.0,
+    0.25,
+    1.0,
+    4.0
+  ],
+  "n_train": 10000,
+  "n_test": 10000,
+  "mi_estimator": "latentmi.ksg.midd(Y_true, Y_pred) [bits]"
+}

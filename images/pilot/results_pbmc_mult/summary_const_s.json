@@ -1,0 +1,68 @@
+{
+  "model": "eta_eff = eta / (1 + s), s constant per sigma_M curve; eta = mean UMI/cell",
+  "eta_mean_umi_full": 917.5863150420134,
+  "eta_note": null,
+  "s_per_curve": {
+    "0.250000": {
+      "s": 0.03,
+      "residual_mse": 0.0001787552034252242,
+      "at_grid_edge": false,
+      "n_below_baseline": 0,
+      "n_points": 5
+    },
+    "0.500000": {
+      "s": 0.4,
+      "residual_mse": 0.007241202043277946,
+      "at_grid_edge": false,
+      "n_below_baseline": 0,
+      "n_points": 5
+    },
+    "0.750000": {
+      "s": 1.7,
+      "residual_mse": 0.033693213949370894,
+      "at_grid_edge": false,
+      "n_below_baseline": 0,
+      "n_points": 5
+    },
+    "1.000000": {
+      "s": 3.21,
+      "residual_mse": 0.07878906292454277,
+      "at_grid_edge": false,
+      "n_below_baseline": 0,
+      "n_points": 5
+    }
+  },
+  "s_vs_sigmaM2_linfit": {
+    "slope": 3.5026356589147287,
+    "intercept": -0.3068604651162772,
+    "r2": 0.9929413176763136,
+    "sigma_B_sq_from_slope": -0.7145007082152974
+  },
+  "dataset": "PBMC_CITEseq",
+  "classifier": "SCVI (n_hidden=512, n_latent=16, zinb)",
+  "mi_estimator": "latentmi.lmi.estimate(Z, protein_counts) [bits]",
+  "k": 20,
+  "n_train": 20000,
+  "n_test": 20000,
+  "n_per_batch": 1000.0,
+  "epochs": 10,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "noise_grid": [
+    1.0,
+    0.5,
+    0.25,
+    0.125,
+    0.0625
+  ],
+  "sigma_M_grid": [
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0
+  ]
+}

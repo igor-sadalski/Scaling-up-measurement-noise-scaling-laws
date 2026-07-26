@@ -1,0 +1,63 @@
+{
+  "theory": "eta_eff = eta / (1 + alpha_s * sigma_M^2/sigma_meas^2), one alpha_s per sigma_M curve",
+  "alpha_per_curve": {
+    "0.250000": {
+      "alpha": 119.66083527064211,
+      "alpha_median": 104.07673352130467,
+      "alpha_std": 71.87159034392285,
+      "n_points_used": 5,
+      "n_extrapolated": 2
+    },
+    "0.500000": {
+      "alpha": 83.53510602804994,
+      "alpha_median": 85.99295110144112,
+      "alpha_std": 10.900198664672297,
+      "n_points_used": 5,
+      "n_extrapolated": 5
+    },
+    "0.750000": {
+      "alpha": 75.7383106575259,
+      "alpha_median": 75.76791056129503,
+      "alpha_std": 6.023171001509785,
+      "n_points_used": 5,
+      "n_extrapolated": 5
+    },
+    "1.000000": {
+      "alpha": 63.26663452016591,
+      "alpha_median": 59.16957641337127,
+      "alpha_std": 17.475452129089952,
+      "n_points_used": 5,
+      "n_extrapolated": 5
+    }
+  },
+  "alpha_mean": 85.55022161909596,
+  "alpha_std": 24.22413744762101,
+  "alpha_cv": 0.2831569222050251,
+  "dataset": "PBMC_CITEseq",
+  "classifier": "SCVI (n_hidden=512, n_latent=16, zinb)",
+  "mi_estimator": "latentmi.lmi.estimate(Z, protein_counts) [bits]",
+  "k": 20,
+  "n_train": 20000,
+  "n_test": 20000,
+  "n_per_batch": 1000.0,
+  "epochs": 10,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "noise_grid": [
+    1.0,
+    0.5,
+    0.25,
+    0.125,
+    0.0625
+  ],
+  "sigma_M_grid": [
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0
+  ]
+}

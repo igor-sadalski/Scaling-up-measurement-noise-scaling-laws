@@ -1,0 +1,47 @@
+{
+  "theory": "eta_eff = eta / (1 + alpha * sigma_M^2/sigma_meas^2), eta = 1/sigma_meas^2",
+  "alpha_fit": 0.87,
+  "collapse_residual_mse_theory": {
+    "0.141421": 9.218131173990995e-05,
+    "0.282843": 0.00031470077144534376,
+    "0.565685": 0.0006632019235595237
+  },
+  "collapse_residual_mse_alpha": {
+    "0.141421": 0.00011230827908571782,
+    "0.282843": 0.0001422448343521944,
+    "0.565685": 0.0004419925841433794
+  },
+  "empirical_fit": {
+    "slope": 0.7548251905204085,
+    "intercept": 0.6978961959614637,
+    "r2": 0.9972438246622474,
+    "n_points": 16
+  },
+  "dataset": "tissuemnist",
+  "classifier": "mobilenet_v3_small (IMAGENET1K_V1), final Linear -> num_classes",
+  "mi_estimator": "latentmi.ksg.midd(Y_true, Y_pred) [bits]",
+  "k": 100,
+  "n_train": 10000,
+  "n_test": 10000,
+  "n_per_batch": 100.0,
+  "epochs": 10,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "noise_grid": [
+    0.05,
+    0.1,
+    0.2,
+    0.4,
+    0.8,
+    1.6
+  ],
+  "sigma_M_grid": [
+    0.0,
+    0.14142135623730953,
+    0.28284271247461906,
+    0.5656854249492381
+  ]
+}

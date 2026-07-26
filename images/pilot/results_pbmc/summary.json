@@ -1,0 +1,49 @@
+{
+  "theory": "eta_eff = eta / (1 + alpha * sigma_M^2/sigma_meas^2), eta = 1/sigma_meas^2",
+  "alpha_fit": 8.0,
+  "collapse_residual_mse_theory": {
+    "0.250000": 0.27974902227275944,
+    "0.500000": 1.1472492358526702,
+    "0.750000": 1.5733072279172158,
+    "1.000000": 1.6693364540805202
+  },
+  "collapse_residual_mse_alpha": {
+    "0.250000": 0.1917691516903914,
+    "0.500000": 0.6158868164074944,
+    "0.750000": 0.6572757938454412,
+    "1.000000": 0.5547262160446578
+  },
+  "empirical_fit": {
+    "slope": 14.800929055908195,
+    "intercept": 2.444741468541988,
+    "r2": 0.6711319834172486,
+    "n_points": 3
+  },
+  "dataset": "PBMC_CITEseq",
+  "classifier": "SCVI (n_hidden=512, n_latent=16, zinb)",
+  "mi_estimator": "latentmi.lmi.estimate(Z, protein_counts) [bits]",
+  "k": 20,
+  "n_train": 20000,
+  "n_test": 20000,
+  "n_per_batch": 1000.0,
+  "epochs": 10,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "noise_grid": [
+    1.0,
+    0.5,
+    0.25,
+    0.125,
+    0.0625
+  ],
+  "sigma_M_grid": [
+    0.0,
+    0.25,
+    0.5,
+    0.75,
+    1.0
+  ]
+}

@@ -366,9 +366,11 @@ def fit_info_model(x_data, y_data, gate=True):
     except Exception:
         return None, None, None
     a, b = result.params["A"], result.params["B"]
-    good = a.stderr and b.stderr and a.stderr < a.value and b.stderr < b.value
-    if gate and not good:
-        return None, None, None
+    # Uncertainty-based exclusion disabled: previously dropped fits whose A/B
+    # standard errors were not smaller than their values.
+    # good = a.stderr and b.stderr and a.stderr < a.value and b.stderr < b.value
+    # if gate and not good:
+    #     return None, None, None
     try:
         x_bar, i_max = 1 / a.value, 0.5 * np.log2(b.value / a.value)
     except Exception:
@@ -391,7 +393,8 @@ def plot_precomputed_scaling(ax, df, param_df, color_map, marker_map, hue_order_
         if sig == "Caltech101-binary":
             continue
         for q in df["quality"].unique():
-            if q < 0.1:
+            # Panel b: only collapse full-depth (quality == 1) datasets.
+            if not np.isclose(q, 1):
                 continue
             for alg in hue_order_methods:
                 data = df[(df["signal"] == sig) & (df["quality"] == q) & (df["algorithm"] == alg)]
@@ -862,15 +865,15 @@ def make_figure(data):
     U_BAR_REL_ERR_CUTOFF = 0.5      # sensitivity error, as a fraction of u_bar
 
     noise_df = noise_param_raw.copy()
-    noise_df = noise_df[noise_df["I_max_error"] < I_MAX_ERR_CUTOFF]
+    # noise_df = noise_df[noise_df["I_max_error"] < I_MAX_ERR_CUTOFF]
     noise_df = noise_df[noise_df["metric"] != "celltype.l3"]
     noise_df = noise_df[noise_df["size"].isin(noise_df.groupby("dataset")["size"].max().values)]
 
     # Sensitivity panel: suppress (NaN out) bars whose u_bar is poorly constrained,
     # keeping the metric x method grid aligned with the capacity panel.
     sens_df = noise_df.copy()
-    rel_ubar_err = sens_df["u_bar_error"] / sens_df["fitted_u_bar"]
-    sens_df.loc[rel_ubar_err >= U_BAR_REL_ERR_CUTOFF, ["fitted_u_bar", "u_bar_error"]] = np.nan
+    # rel_ubar_err = sens_df["u_bar_error"] / sens_df["fitted_u_bar"]
+    # sens_df.loc[rel_ubar_err >= U_BAR_REL_ERR_CUTOFF, ["fitted_u_bar", "u_bar_error"]] = np.nan
 
     noise_df.replace(RENAME_DICT, inplace=True)
     sens_df.replace(RENAME_DICT, inplace=True)
@@ -884,6 +887,7 @@ def make_figure(data):
                             capsize=0, ecolor="grey", rot=0, legend=False)
     axs_f[0].set_xlabel("Auxiliary MI metric", fontsize=12)
     axs_f[0].set_ylabel(r"sensitivity ($\bar{\eta}$)", fontsize=12)
+    axs_f[0].set_yscale("log")
     axs_f[0].tick_params(axis="x", rotation=0)
     axs_f[0].set_xticklabels([t.get_text().replace(" MI", "") for t in axs_f[0].get_xticklabels()])
 

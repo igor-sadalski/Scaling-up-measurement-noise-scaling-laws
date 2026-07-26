@@ -1,0 +1,37 @@
+2026-07-18 23:19:35 [INFO] device=cuda | torch=2.10.0+cu130 | cuda_available=True
+2026-07-18 23:19:35 [INFO] args: {'dataset': 'tissuemnist', 'output_dir': '/mnt/home/gokulg/scaling/Scaling-up-measurement-noise-scaling-laws/images/pilot/results', 'size': 64, 'epochs': 10, 'lr': 0.001, 'batch_size': 512, 'num_workers': 2, 'k': 100, 'seeds': [0], 'noise_grid': [0.05, 0.1, 0.2, 0.4, 0.8, 1.6], 'ratio_targets': [0.0, 0.25, 1.0, 4.0, 9.0, 16.0], 'subset_train': 10000, 'subset_test': 10000, 'no_download': False, 'no_analyze': False}
+2026-07-18 23:19:35 [INFO] loading tissuemnist (size=64) ...
+2026-07-18 23:19:39 [INFO] full split: 165466 train, 47280 test, 8 classes
+2026-07-18 23:19:39 [INFO] per-image tensor shape (C,H,W): (3, 64, 64)
+2026-07-18 23:19:39 [INFO] noise_grid (sigma_meas): [0.05, 0.1, 0.2, 0.4, 0.8, 1.6]
+2026-07-18 23:19:39 [INFO] sigma_meas_mid (geom): 0.2828
+2026-07-18 23:19:39 [INFO] sigma_M_grid: [0.0, 0.1414, 0.2828, 0.5657, 0.8485, 1.1314]  (ratio targets @ mid: [0.0, 0.25, 1.0, 4.0, 9.0, 16.0])
+2026-07-18 23:19:39 [INFO] total sweep cells: 36 (= 1 seeds x 6 noise x 6 sigma_M)
+2026-07-18 23:19:39 [INFO] [seed 0] using 10000 train / 10000 test imgs (n_per_batch=100.0, k=100)
+2026-07-18 23:19:39 [INFO] === cell 1/36 | seed=0 noise_level=0.0500 sigma_M=0.0000 ratio=0.000 ===
+2026-07-18 23:19:40 [INFO] training: 10000 train imgs, 10 epochs (noise_level=0.0500, sigma_M=0.0000)
+Epoch 1/10 | Loss: 1.7293 | Acc: 38.27%
+Epoch 2/10 | Loss: 1.2407 | Acc: 54.38%
+Epoch 3/10 | Loss: 0.9671 | Acc: 64.31%
+Epoch 4/10 | Loss: 0.6918 | Acc: 75.92%
+Epoch 5/10 | Loss: 0.4521 | Acc: 85.49%
+Epoch 6/10 | Loss: 0.2772 | Acc: 92.17%
+Epoch 7/10 | Loss: 0.1764 | Acc: 95.20%
+Epoch 8/10 | Loss: 0.1569 | Acc: 95.55%
+Epoch 9/10 | Loss: 0.1396 | Acc: 95.75%
+Epoch 10/10 | Loss: 0.1231 | Acc: 96.08%
+2026-07-18 23:20:00 [INFO] training done in 20.4s; evaluating MI on 10000 test imgs
+2026-07-18 23:20:02 [INFO] cell result: MI(pred;true) = 0.0280 bits
+2026-07-18 23:20:02 [INFO] === cell 2/36 | seed=0 noise_level=0.0500 sigma_M=0.1414 ratio=8.000 ===
+2026-07-18 23:20:02 [INFO] training: 10000 train imgs, 10 epochs (noise_level=0.0500, sigma_M=0.1414)
+Epoch 1/10 | Loss: 1.7899 | Acc: 34.18%
+Epoch 2/10 | Loss: 1.3079 | Acc: 51.42%
+Epoch 3/10 | Loss: 1.0182 | Acc: 63.04%
+Epoch 4/10 | Loss: 0.7231 | Acc: 75.02%
+Epoch 5/10 | Loss: 0.4746 | Acc: 84.47%
+Epoch 6/10 | Loss: 0.2890 | Acc: 91.45%
+Epoch 7/10 | Loss: 0.2024 | Acc: 94.26%
+Epoch 8/10 | Loss: 0.1581 | Acc: 95.45%
+Epoch 9/10 | Loss: 0.1395 | Acc: 95.91%
+Epoch 10/10 | Loss: 0.1372 | Acc: 95.81%
+2026-07-18 23:20:21 [INFO] training done in 18.9s; evaluating MI on 10000 test imgs
