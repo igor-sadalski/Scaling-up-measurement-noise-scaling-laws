@@ -6,9 +6,10 @@ codebase this is avg_pool2d with kernel = sqrt(f), so f = kernel**2.
 
 Instead of asserting eta = 1/f, we measure the SNR empirically on TissueMNIST-224
 (matching the experiment's degradation x' = Resize_224(avgpool(x, sqrt(f)))) as the
-variance-ratio SNR  eta_emp = Var(x) / E[(x-x')^2]  (analogous to the single-cell
-eta = CV^-2), and check (a) how eta_emp scales with 1/f and (b) that the universal
-noise-scaling law fits the label MI in this empirical SNR.
+variance-ratio SNR  eta_emp = Var(x) / E[(x-x')^2] - 1  (analogous to the single-cell
+eta = CV^-2, written as signal/noise so eta_emp -> 0 at maximal degradation where
+E[(x-x')^2] -> Var(x)), and check (a) how eta_emp scales with 1/f and (b) that the
+universal noise-scaling law fits the label MI in this empirical SNR.
 
 Run in the `lt` env: conda activate lt && python analysis/image_resolution_parameterization.py
 """
@@ -84,7 +85,7 @@ def measure_snr():
             se += float(((x - degrade(x, k)) ** 2).sum().item()); n += x.numel()
         mse = se / n
         rows.append({"kernel": k, "f": k * k, "inv_f": 1.0 / (k * k),
-                     "mse": mse, "eta_emp": var / mse})
+                     "mse": mse, "eta_emp": var / mse - 1})
     df = pd.DataFrame(rows); df.attrs["var"] = var
     return df
 
@@ -132,7 +133,7 @@ def main():
              label=fr"$\eta_{{\rm emp}}\propto 1/f$  ($R^2={r2:.3f}$)")
     axA.set_xscale("log"); axA.set_yscale("log")
     axA.set_xlabel(r"$1/f$  (inverse area downsampling factor)", fontsize=12)
-    axA.set_ylabel(r"$\eta_{\rm emp} = \mathrm{Var}(x)\,/\,\mathbb{E}[(x-x')^2]$", fontsize=12)
+    axA.set_ylabel(r"$\eta_{\rm emp} = \mathrm{Var}(x)\,/\,\mathbb{E}[(x-x')^2] - 1$", fontsize=12)
     axA.legend(fontsize=9, loc="upper left")
     axA.text(-0.18, 1.03, "a)", transform=axA.transAxes, fontsize=16, fontweight="bold")
 
@@ -160,7 +161,7 @@ def main():
               label=fr"$\eta_{{\rm emp}}\propto 1/f$  ($R^2={r2:.3f}$)")
     axA1.set_xscale("log"); axA1.set_yscale("log")
     axA1.set_xlabel(r"$1/f$  (inverse area downsampling factor)", fontsize=12)
-    axA1.set_ylabel(r"$\eta_{\rm emp} = \mathrm{Var}(x)\,/\,\mathbb{E}[(x-x')^2]$", fontsize=12)
+    axA1.set_ylabel(r"$\eta_{\rm emp} = \mathrm{Var}(x)\,/\,\mathbb{E}[(x-x')^2] - 1$", fontsize=12)
     axA1.legend(fontsize=9, loc="upper left")
     figA.tight_layout()
     figA.savefig(OUT_A_PNG, dpi=150, bbox_inches="tight"); figA.savefig(OUT_A_PDF, bbox_inches="tight")

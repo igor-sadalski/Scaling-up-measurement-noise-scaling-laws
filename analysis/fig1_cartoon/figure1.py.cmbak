@@ -9,13 +9,12 @@ sizes below are real point sizes.
 
 Fonts
 -----
-Standard text : Latin Modern Sans      (embedded from the TeX "lm" OTFs)
+Standard text : Computer Modern Sans   (CMU Sans Serif / Latin Modern Sans)
 Dataset tags  : Computer Modern Typewriter  (\\texttt)
 Math / symbols: Computer Modern Roman italic (\\mathit)
-These are referenced by family name; the sans faces are embedded from the
-TeX "lm" (Latin Modern) OTFs and the serif / typewriter faces from
-"cm-unicode" (CMU *).  Sensible sans / serif / mono fall-backs are chained
-after them.
+These are referenced by family name; install the TeX "cm-unicode"
+(CMU *) or "lm" (Latin Modern) fonts so a viewer picks them up.  Sensible
+sans / serif / mono fall-backs are chained after them.
 
 Blanks to fill are the `n=None` and `umis=None` fields in the DATA block;
 they render as light underlines.
@@ -41,7 +40,6 @@ W    = 6.5 * IN             # 468 pt canvas width
 M    = 15                   # page margin (pt)
 
 # ---- palette (one quiet teal accent; warm only inside noise map) ---
-TEXT   = "#000000"          # all text renders in this colour
 INK    = "#1A2230"
 SUB    = "#69747F"
 FAINT  = "#AEB7C0"
@@ -51,8 +49,8 @@ ACCENT = "#1E6E7A"
 ACC_BG = "#EAF2F2"
 ARROW  = "#8A96A3"
 
-# ---- font stacks (sans = Latin Modern Sans; serif/mono = Computer Modern) --
-SANS = ("'Latin Modern Sans','CMU Sans Serif','Computer Modern Sans Serif',"
+# ---- Computer Modern font stacks -----------------------------------
+SANS = ("'CMU Sans Serif','Latin Modern Sans','Computer Modern Sans Serif',"
         "'Helvetica Neue',Arial,sans-serif")
 TT   = ("'CMU Typewriter Text','Latin Modern Mono',"
         "'Computer Modern Typewriter',Menlo,Consolas,monospace")
@@ -161,7 +159,6 @@ def T(x, y, s, size=F_BODY, fam=SANS, fill=INK, weight="normal",
       anchor="start", style="normal", spacing=None, max_w=None, opacity=None):
     """Text.  `max_w` is a safety net only: it condenses on genuine overflow
     (measured with real metrics) and can never stretch a glyph."""
-    fill = TEXT                 # all text is black regardless of caller
     tl = ""
     if max_w and len(str(s)) > 1:
         natural = text_width(s, size, fam, weight, style)
@@ -208,32 +205,6 @@ def heat(x, y, rows, cols, ramp, seed, cell=4.2, gap=1.0, rx=0.7):
 
 def blank(x, y, w=24):
     return line(x, y, x+w, y, stroke=FAINT, w=0.8, cap="round")
-
-def _sci_parts(v):
-    """(mantissa string, exponent int) for `v` in 2-significant-figure
-    scientific notation, e.g. 236386 -> ('2.4', 5), 100000 -> ('1', 5)."""
-    v = float(v)
-    exp = int(math.floor(math.log10(v)))
-    mant = round(v / 10**exp, 1)
-    if mant >= 10:                      # rounding bumped 9.95 -> 10.0
-        mant /= 10; exp += 1
-    ms = f"{mant:.1f}".rstrip("0").rstrip(".")
-    return ms, exp
-
-def sci(x, y, value, size=F_BODY, fam=SANS, fill=INK):
-    """Left-anchored scientific notation  m x 10^exp  at baseline (x, y).
-    Returns (svg, total_width_pt).  Uses real metrics so nothing stretches."""
-    ms, exp = _sci_parts(value)
-    g = size * 0.16                     # gap around the multiplication sign
-    esz = size * 0.72                   # superscript size
-    out, cx = [], x
-    for part in (ms, "×", "10"):
-        out.append(T(cx, y, part, size=size, fam=fam, fill=fill))
-        cx += text_width(part, size, fam) + (g if part != "10" else 0)
-    cx += 0.4
-    out.append(T(cx, y - size*0.42, str(exp), size=esz, fam=fam, fill=fill))
-    cx += text_width(str(exp), esz, fam)
-    return "".join(out), cx - x
 
 def group_scale(inner, cx, cy, s):
     """Scale `inner` by `s` about (cx, cy)."""
@@ -409,7 +380,7 @@ add(path("M" + " L".join(pts), stroke=ACCENT, sw=1.2))
 add(T(ox+axw/2, py+PH-3, "SNR \u03B7", size=F_AXIS, fam=MATH, fill=SUB,
       anchor="middle"))
 add(f'<text x="{xP+6:.2f}" y="{oy-axh/2:.2f}" font-family="{MATH}" font-size="{F_AXIS}" '
-    f'font-style="italic" fill="{TEXT}" text-anchor="middle" '
+    f'font-style="italic" fill="{SUB}" text-anchor="middle" '
     f'transform="rotate(-90 {xP+6:.2f} {oy-axh/2:.2f})">I(Z;Y)</text>')
 
 # ---- auxiliary-signal Y box (compact; icon on the left of each cell) -
@@ -500,19 +471,20 @@ for gi, grp in enumerate(GROUPS):
         ay0 = ctr + 2.8 - (len(al)-1)*DYT/2
         add(stack(col["aux"][0]+PAD, ay0, al, DYT, size=F_BODY, fam=SANS,
                   fill=INK, max_w=col["aux"][1]-2*PAD))
-        # N samples (scientific notation)
+        # N samples
         if row["n"] is None:
             add(blank(col["n"][0]+PAD, ctr+1, w=col["n"][1]-2*PAD-6))
         else:
-            add(sci(col["n"][0]+PAD, ctr+2.8, row["n"], size=F_BODY)[0])
-        # mean UMI / cell (scientific notation)
+            add(T(col["n"][0]+PAD, ctr+2.8, f'{row["n"]:,}', size=F_BODY, max_w=col["n"][1]-2*PAD))
+        # mean UMI / cell
         u = row["umis"]
         if u == "na":
             add(T(col["umis"][0]+PAD, ctr+2.8, "\u2014", size=F_BODY, fill=FAINT))
         elif u is None:
             add(blank(col["umis"][0]+PAD, ctr+1, w=col["umis"][1]-2*PAD-6))
         else:
-            add(sci(col["umis"][0]+PAD, ctr+2.8, u, size=F_BODY)[0])
+            us = f'{u:,}' if isinstance(u, (int, float)) else str(u)
+            add(T(col["umis"][0]+PAD, ctr+2.8, us, size=F_BODY, max_w=col["umis"][1]-2*PAD))
         # light within-group rule: only across per-row columns (tag..mdl),
         # never crossing the merged modality / model / noising cells
         if ri < len(grp["rows"])-1:
